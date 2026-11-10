@@ -2,7 +2,7 @@ import { asBoss } from "./autoscope.ts";
 import { clean } from "./board.ts";
 import type { Here } from "./heremark.ts";
 import { terminalOnlyOpts } from "./intercept.ts";
-import { type Lang, matchWorkspaces, memoryWords, tidy, type View, type ViewEntry } from "./memorycmd.ts";
+import { type Lang, matchWorkspaces, memoryWords, tidy, type View, type ViewEntry, type ViewFrom } from "./memorycmd.ts";
 
 // `/boss wait` (docs/specs/2026-11-10-wait-cards-tui.md, §2): the boss picks an open wait card from a list in the terminal, then an act, and nobody types or remembers a `W<n>`. It is the picker of the same presses
 // `/boss memory done|choose|decline|restate W<n>` makes (one `tower-memory { op: "press" }` each, the server's own checks and refusals), over the cards `boss-waits` lists (waitlist.ts). The same code runs in an ordinary pi (boss.ts)
@@ -29,6 +29,8 @@ export interface WaitCmdDeps {
 	/** One request to a workspace's `tower-memory`: its reply, whose `status` and `body` are the memory route's. */
 	memory(workspace: string, json: Record<string, unknown>): Promise<Reply & { status?: number; body?: Record<string, unknown> }>;
 	workspaces(): Promise<{ workspace_id: string; label: string; tokens?: Record<string, string> }[]>;
+	/** The tabs of a Herdr workspace, for the switch to a raiser's tab (the card names the raiser's workspace and tab by their labels). */
+	tabs(workspace: string): Promise<{ tab_id: string; label?: string }[]>;
 	ui: WaitUi;
 	here: Here;
 	/** Brings a Herdr tab forward. */
@@ -60,6 +62,7 @@ const WORDS = {
 		noWorkspace: "This session is not in a Herdr workspace: name one with -w <workspace id | label | head>.",
 		noMatch: (q: string) => `No workspace matches "${q}".`, many: (q: string) => `"${q}" names more than one workspace; nothing was done: name the id.`,
 		refused: (why: string) => `${why} (the list is read again)`,
+		tabNone: (name: string) => `${name}'s tab was not found: it may have been closed or renamed.`, tabMany: (name: string) => `More than one tab looks like ${name}'s: nothing was switched.`,
 	},
 	"zh-TW": {
 		usage: "用法：/boss wait [-w <workspace id | 名稱 | head>]",
@@ -82,6 +85,7 @@ const WORDS = {
 		noWorkspace: "這個 session 不在任何 Herdr workspace 裡：用 -w <workspace id | 名稱 | head> 指定。",
 		noMatch: (q: string) => `沒有符合「${q}」的 workspace。`, many: (q: string) => `「${q}」對到不只一個 workspace，什麼都沒做：請指明 id。`,
 		refused: (why: string) => `${why}（清單已重新讀取）`,
+		tabNone: (name: string) => `找不到 ${name} 的分頁：它可能已關閉或改名。`, tabMany: (name: string) => `不只一個分頁像是 ${name} 的：什麼都沒切換。`,
 	},
 };
 
@@ -157,7 +161,7 @@ function pressedWord(d: WaitCmdDeps, e: ViewEntry): string {
 	return p.act === "choose" ? m.didChose(e.card?.options?.[p.option ?? -1]?.label ?? "?") : p.act === "decline" ? m.didDecline : p.act === "restate" ? m.didRestate : m.didDone;
 }
 
-type Act = { kind: "press"; json: Record<string, unknown>; what: string } | { kind: "skip" } | { kind: "reply" } | { kind: "switch"; tab: string } | { kind: "back" };
+type Act = { kind: "press"; json: Record<string, unknown>; what: string } | { kind: "skip" } | { kind: "reply" } | { kind: "switch"; from: ViewFrom } | { kind: "back" };
 /** The acts the card offers, by its kind and state (the table of §2): a card already pressed keeps only the reply, the switch, and the way back. */
 function actsOf(d: WaitCmdDeps, auto: boolean, tower: Tower, e: ViewEntry): { label: string; act: Act }[] {
 	const w = WORDS[d.lang], m = memoryWords(d.lang), c = e.card, who = c?.from?.name ?? w.raiserFallback, tw = towerWord(d, tower);
@@ -173,8 +177,8 @@ function actsOf(d: WaitCmdDeps, auto: boolean, tower: Tower, e: ViewEntry): { la
 		} else own.push(press(w.done, { act: "done" }, m.didDone));
 		own.push({ label: w.skip, act: { kind: "skip" } });
 	}
-	const tab = c?.from?.tab && !c.from.gone ? c.from.tab : undefined;
-	return [...own, { label: w.reply(tw), act: { kind: "reply" } }, ...(tab ? [{ label: w.switchTo(who), act: { kind: "switch" as const, tab } }] : []), { label: w.back, act: { kind: "back" } }];
+	const there = c?.from?.tab && !c.from.gone ? c.from : undefined;
+	return [...own, { label: w.reply(tw), act: { kind: "reply" } }, ...(there ? [{ label: w.switchTo(who), act: { kind: "switch" as const, from: there } }] : []), { label: w.back, act: { kind: "back" } }];
 }
 
 /** The picker: the list, then the card and its acts, until the boss leaves it or nothing is left. Every dialog is terminal-only. */
@@ -204,7 +208,7 @@ async function card(d: WaitCmdDeps, auto: boolean, tower: Tower, e: ViewEntry, s
 	const chosen = pick === undefined ? undefined : acts[labels.indexOf(pick)]?.act;
 	if (!chosen || chosen.kind === "back") return !single;
 	switch (chosen.kind) {
-		case "switch": return await d.focus(chosen.tab), false;
+		case "switch": return await switchTo(d, chosen.from), false;
 		case "press": return (await press(d, tower, e, chosen)) ? !single : true;
 		case "skip": {
 			const reason = await d.ui.input(w.reason, undefined, opts);
@@ -225,6 +229,19 @@ async function card(d: WaitCmdDeps, auto: boolean, tower: Tower, e: ViewEntry, s
 				return d.tell(w.refused((error as Error).message), "error"), true;
 			}
 		}
+	}
+}
+
+/** The raiser's tab, found by the labels the card keeps (its workspace and tab), and brought forward; nothing is written. One that cannot be found, or is not one, is said. */
+async function switchTo(d: WaitCmdDeps, from: ViewFrom): Promise<void> {
+	const w = WORDS[d.lang];
+	try {
+		const found: string[] = [];
+		for (const ws of (await d.workspaces()).filter((x) => from.workspace === undefined || x.label === from.workspace)) found.push(...(await d.tabs(ws.workspace_id)).filter((t) => t.label === from.tab).map((t) => t.tab_id));
+		if (found.length !== 1) return d.tell(found.length ? w.tabMany(from.name) : w.tabNone(from.name), "warning");
+		await d.focus(found[0]!);
+	} catch (error) {
+		d.tell((error as Error).message, "error");
 	}
 }
 

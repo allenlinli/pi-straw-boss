@@ -18,7 +18,7 @@ import { parseWaitArgs, runWaitCommand, type WaitCmdDeps } from "../src/waitcmd.
 
 const NOW = Date.parse("2026-11-10T10:00:00Z");
 const NO_RELAY = Symbol.for("pi-straw-boss.no-relay");
-const FROM = { id: "main-1", name: "mp3946-print", role: "main", tab: "wA:t1" };
+const FROM = { id: "main-1", name: "mp3946-print", role: "main", workspace: "Alpha", tab: "MP-3946" };
 const card = (over: Record<string, unknown> = {}) => ({ type: "action", lang: "en", happened: "The key expired.", do: "Re-authorize the machine.", url: "https://login.example/admin", after: "The tower asks the main to test.", from: FROM, ...over });
 const CHOICE = { type: "choice", do: "Deploy the build now?", options: [{ label: "Deploy", then: "The main deploys." }, { label: "Hold", then: "The main waits." }] };
 const SECRET = { type: "secret", do: "Create a key and enter it.", secret: { name: "the auth key" } };
@@ -71,6 +71,7 @@ function harness(over: { lang?: "en" | "zh-TW"; interactive?: boolean; auto?: bo
 			? { ok: true, ...(await pressRequest({ slot, now: () => NOW, log: { line() {}, hide() {} }, locale: "en", live: async () => true, send: async (to, text) => (notices.push(`${to}: ${text}`), { status: "sent" }), boss: (text) => void events.push(text), autoOn: () => auto }, workspace, json)) }
 			: { ok: true, ...memoryRequest(slot, workspace, NOW, json) }),
 		workspaces: async () => [{ workspace_id: "wA", label: "Alpha" }, { workspace_id: "wB", label: "Beta" }, { workspace_id: "wH", label: "Head ws", tokens: { sb_head: "sb-head" } }],
+		tabs: async (ws) => (ws === "wA" ? [{ tab_id: "wA:t1", label: "MP-3946" }, { tab_id: "wA:t2", label: "other" }] : ws === "wB" ? [{ tab_id: "wB:t1", label: "MP-3946" }] : []),
 		focus: async (tab) => void focused.push(tab),
 	};
 	const plant = (key: string, e: Partial<Entry> & { id: string }) => updateMemory(slot, key, NOW, (m) => void m.entries.push({ kind: "wait", text: String(e.card?.do ?? "a wait"), by: "run", via: "run", at: iso(NOW - 12 * 60_000), run: "r1", for: "boss", state: "open", ...e } as Entry));
@@ -249,9 +250,20 @@ test("switch focuses the raiser's tab and writes nothing", async () => {
 	const h = harness();
 	h.plant("wA", { id: "W1", card: card() as never });
 	await h.run("", /^Switch to mp3946-print/);
-	assert.deepEqual(h.focused, ["wA:t1"]);
+	assert.deepEqual(h.focused, ["wA:t1"], "the tab of that name in the raiser's workspace");
 	assert.equal(h.sent.length, 0);
 	assert.equal(h.asked.filter((r) => r.cmd !== "boss-waits").length, 0);
+	// a tab that is gone, or a name two tabs carry (the workspace is not named), is said and nothing is switched
+	const gone = harness();
+	gone.plant("wA", { id: "W1", card: card({ from: { ...FROM, tab: "closed-tab" } }) as never });
+	await gone.run("", /^Switch to/);
+	assert.deepEqual(gone.focused, []);
+	assert.match(gone.last().text, /tab was not found/);
+	const twice = harness();
+	twice.plant("wA", { id: "W1", card: card({ from: { ...FROM, workspace: undefined } }) as never });
+	await twice.run("", /^Switch to/);
+	assert.deepEqual(twice.focused, []);
+	assert.match(twice.last().text, /More than one tab/);
 });
 
 test("a press the server refuses shows the server's reason and the list is read again", async () => {

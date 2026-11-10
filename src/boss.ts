@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { boardCommand } from "./boardcmd.ts";
 import { runHeadCommand, parseHeadArgs } from "./headcmd.ts";
-import { workspaces } from "./herdr.ts";
+import { tabs, workspaces } from "./herdr.ts";
 import { memoryLang, runMemoryCommand } from "./memorycmd.ts";
 import { runWaitCommand } from "./waitcmd.ts";
 import { headAlias, parseTowerArgs, parseTowerLine, runTowerCommand, sayToTower, type TowerCmdDeps, towerUsage } from "./towercmd.ts";
@@ -52,7 +52,7 @@ export function registerBoss(kit: Kit, { runMode, host, membership, reach, close
 		? runWaitCommand(args, {
 			lang: memoryLang(cfg.env), interactive: ctx.hasUI, own: s.at?.workspaceId, tell, memory: memoryAsk, workspaces: () => workspaces(cfg.run), ui: ctx.ui, here: host.here, now: cfg.now,
 			ask: async (request) => ({ ...(await server.ask(request.cmd === "tower-event" || request.cmd === "head-event" ? { ...request, ...sender() } : request, { start: "never" })) }),
-			focus: async (tab) => void (await cfg.run(["tab", "focus", tab])),
+			tabs: (workspace) => tabs(cfg.run, workspace), focus: async (tab) => void (await cfg.run(["tab", "focus", tab])),
 		})
 		: Promise.resolve(tell("The sb server is not available in this session.", "warning"));
 	// `/boss tower status | retry | parked | deliver <id> | drop <id> | leave | new` (towercmd.ts): the pi twins of the tower card's and composer's buttons, one control command each.

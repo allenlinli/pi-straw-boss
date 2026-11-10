@@ -36,7 +36,7 @@ export interface Outpost extends Lately { id: string; label: string; mark: Mark 
  * A wait for the boss as the page sees it (docs/specs/2026-11-07-wait-cards.md): `card` and `press` as stored, with the raiser's session id replaced by its unit `key` when the net has the unit (buildNet); `cut`: the card went over the snapshot's budget (waitbudget.ts) and is only its `text`,
  * which the page reads whole with the memory route's `read`.
  */
-export interface BossWait { id: string; text: string; at: string; answered?: string; /** A wait the boss declined or the tower resolved, kept until the sweep drops it (24 h): `outcome` is what became of it and `ended` when. It is no longer open: no alert, no count. */ state?: "resolved"; outcome?: string; ended?: string; card?: WaitCardView; press?: WaitPressView; /** Recorded or open while auto mode is on: silent until the boss is back (auto-mode spec §6). */ parked?: true; cut?: true }
+export interface BossWait { id: string; text: string; at: string; answered?: string; /** A wait the boss declined or the tower resolved, kept until the sweep drops it (24 h): `outcome` is what became of it and `ended` when. It is no longer open: no alert, no count. */ state?: "resolved"; outcome?: string; ended?: string; card?: WaitCardView; press?: WaitPressView; /** Recorded or open while auto mode is on: silent until the boss is back (auto-mode spec §6). */ parked?: true; /** The return panel listed it when auto mode ended: no alert again (auto-mode spec §8). */ listed?: true; cut?: true }
 export interface WaitCardView {
 	type: "action" | "choice" | "secret"; lang: "zh-TW" | "en"; happened: string; do: string; url?: string; command?: string; after?: string; options?: { label: string; then: string }[]; secret?: { name: string };
 	from?: { /** On the server; the net swaps it for `key`. */ id?: string; name: string; role: string; workspace?: string; tab?: string; gone?: true; key?: string };
@@ -85,7 +85,7 @@ export interface Base { id: string; label: string; mark: Mark; /** Only on a bas
  */
 /** Auto mode as the boss own page shows it (docs/specs/2026-11-09-auto-mode.md, section 7): present only while it is on or the head request waits for the boss confirm (`pending`: the id the confirm names, what the boss said, when it lapses). Like `board` it never reaches the link, a remote turn, or the operate slice. */
 export interface AutoSnap { on: boolean; since?: string; pending?: { id: string; said: string; expires: number } }
-export interface Net { bases: Base[]; /** The head tower (nethead.ts); present when the server runs the tower service. */ head?: HeadUnit; stashed?: Stashed[]; trust?: TrustAsk[]; events?: NetEvent[]; link?: LinkSummary; yards?: Yards; load?: NetLoad; board?: BoardViewRow[]; auto?: AutoSnap }
+export interface Net { bases: Base[]; /** The head tower (nethead.ts); present when the server runs the tower service. */ head?: HeadUnit; stashed?: Stashed[]; trust?: TrustAsk[]; events?: NetEvent[]; link?: LinkSummary; yards?: Yards; load?: NetLoad; board?: BoardViewRow[]; auto?: AutoSnap; /** This server can switch auto mode (the primary slot's, attended): the page shows the chip only then. */ autoable?: true }
 /** What the server may read for a key: the registry entry is the allow list, and paths never come from the browser. */
 export interface Ref { key: string; base: string; name: string; role: string; file?: string; pane?: string; /** The head tower's chapters, oldest first (the last is `file`): the history chains through them (watch.ts). */ chapters?: HeadChapter[] }
 export interface Found extends Ref { live: boolean; successor?: string }
@@ -189,7 +189,7 @@ export function joinOf(net: Net): YardJoin {
 	return { trains: units.flatMap((u) => (u.role === "train" && u.train ? [{ key: u.key, project: u.train.project, code: u.train.code }] : [])), mains: new Set(units.filter((u) => u.role === "main").map((u) => u.key)), integrators: new Set(units.filter((u) => u.role === "main" && (u.duty === "integrator" || u.duty === undefined)).map((u) => u.key)) };
 }
 
-export function netSource(env: { auto?: () => AutoSnap | undefined; board?: BoardSeam; trainyard?: { yards(join: YardJoin): Yards | undefined; load(): NetLoad | undefined }; services?(workspace: string): TowerView | undefined; head?: HeadSeam; run: HerdrRun; world?: HerdrWorld; sessions(): Promise<Session[]>; sessionDir?: string; hub?: { relayed(sessions: Session[], refs: Map<string, Ref>): Relayed }; stashed?(): Stashed[]; trust?: { asks(panes: Pane[], workspaces: Workspace[]): TrustAsk[] } }) {
+export function netSource(env: { auto?: () => AutoSnap | undefined; autoable?: () => boolean; board?: BoardSeam; trainyard?: { yards(join: YardJoin): Yards | undefined; load(): NetLoad | undefined }; services?(workspace: string): TowerView | undefined; head?: HeadSeam; run: HerdrRun; world?: HerdrWorld; sessions(): Promise<Session[]>; sessionDir?: string; hub?: { relayed(sessions: Session[], refs: Map<string, Ref>): Relayed }; stashed?(): Stashed[]; trust?: { asks(panes: Pane[], workspaces: Workspace[]): TrustAsk[] } }) {
 	let refs = new Map<string, Ref>(), live: Session[] = [];
 	const gone = new Map<string, { ref: Ref; at: number }>(), sessions = async () => (live = await env.sessions()), dismissed = new Set<string>(), ended = new Set<string>();
 	const lately = trackActivity();
@@ -205,7 +205,7 @@ export function netSource(env: { auto?: () => AutoSnap | undefined; board?: Boar
 			for (const [key, old] of gone) if (next.has(key) || at - old.at > RECENT_MS) gone.delete(key);
 			refs = next;
 			const stashed = env.stashed?.() ?? [], seen = lately(net); // after the dialogs and the finished: the marks the page shows
-			const stashing = stashed.length ? { ...seen, stashed } : seen, board = env.board?.rows(stashing, live.map((x) => x.id)), boarded = board ? { ...stashing, board } : stashing, snap = env.auto?.(), shown: Net = snap && (snap.on || snap.pending) ? { ...boarded, auto: snap } : boarded, yards = env.trainyard?.yards(joinOf(shown));
+			const stashing = stashed.length ? { ...seen, stashed } : seen, board = env.board?.rows(stashing, live.map((x) => x.id)), boarded = board ? { ...stashing, board } : stashing, snap = env.auto?.(), able = env.autoable?.() ? { ...boarded, autoable: true as const } : boarded, shown: Net = snap && (snap.on || snap.pending) ? { ...able, auto: snap } : able, yards = env.trainyard?.yards(joinOf(shown));
 			if (!yards) return shown;
 			const load = env.trainyard!.load();
 			return { ...shown, yards, ...(load ? { load } : {}) };

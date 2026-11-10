@@ -18,6 +18,7 @@ import type { Answer } from "./post.ts";
 import { type Source, WATCHDOG_MS } from "./stream.ts";
 import { openThen } from "./terminalthen.ts";
 import { trainsFromUrl } from "./demo-trains.ts";
+import { installAutoDemo } from "./demo-auto.ts";
 
 // The demo net for `npm run gui:dev`: invented names, state changes on a timer, and a stream that can be dropped to see the
 // disconnected page. It stands in for the server's EventSource, so the real reconnect logic runs against it.
@@ -120,10 +121,10 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	const zen = new URLSearchParams(location.search).get("zen"), cardParam = new URLSearchParams(location.search).get("card");
 	/** The terminal card's script (democard.ts): `?card=<state>` starts one; an answer that leaves a terminal step starts the default one (a pane types its command, "Run it" runs it). */
 	let card = isCard(cardParam) ? demoCard(cardParam, (type, payload) => current?.send(type, payload)) : undefined;
-	let net = demo(), step = 0, waits = 0, dropped = false, silent = false, current: FixtureSource | undefined, live = 0, notes = 0;
+	let net: Net = { ...demo(), autoable: true }, step = 0, waits = 0, dropped = false, silent = false, current: FixtureSource | undefined, live = 0, notes = 0;
 	const boxes = boxDemo(net, new URLSearchParams(location.search).get("operate")); // `?operate=live,unreachable,revoked,refused|more|all`: remote bases of an unattended box (demo-box.ts)
 	// `?waits=cards` (demo-waits.ts: the fonstar case, then one card of each kind and state; its presses are answered there). `?wait=fresh|stale|both`: the tower records a wait on the boss (20 minutes old: an alert; three days old: only the card's line, marked as out of date); the memory route's drop is this stand-in's.
-	const waitDemo = new URLSearchParams(location.search).get("wait") ?? (new URLSearchParams(location.search).get("waits") === "cards" ? "cards" : zen === "blocking" ? "fresh" : null);
+	const waitDemo = new URLSearchParams(location.search).get("wait") ?? (new URLSearchParams(location.search).get("waits") === "cards" || new URLSearchParams(location.search).has("auto") ? "cards" : zen === "blocking" ? "fresh" : null);
 	const waitRefuse = new URLSearchParams(location.search).has("waitrefuse");
 	/** The server's `answers` on a message to the tower: the wait is marked answered, and the next snapshot says so (the alert goes). */
 	const answerWait = (id: unknown) => { const w = net.bases[0]!.tower?.service?.memory?.bossWaits.find((x) => x.id === id); return w ? ((w.answered = new Date().toISOString()), (net = structuredClone(net)), current?.send("message", net), w.id) : false; }; // `&waitrefuse`: the tower refuses what the boss sends it (the wait panel's refusal)
@@ -144,6 +145,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 			return new Response(JSON.stringify({ rev: memory.rev, proposals: [], entries: [] }), { status: 200, headers: { "content-type": "application/json" } }); // the memory route answers the memory it now holds
 		};
 	}
+	installAutoDemo(new URLSearchParams(location.search).get("auto"), Date.now(), { net: () => net, change: () => ((net = structuredClone(net)), current?.send("message", net)) }); // `?auto=on|back` (demo-auto.ts)
 	// The demo documents stand in for the server's: the HTML one as a data: page, the text ones from here.
 	[docHooks.src, docHooks.load] = [() => `data:text/html;charset=utf-8,${encodeURIComponent(DEMO_PAGE)}`, async (cap) => ({ text: cap === "plan" ? DEMO_DOC : cap === "blocks" ? DEMO_BLOCKS_DOC : `# Notes ${cap.slice(5)}\n\nA demo document that arrived on its own.` })];
 	answeredHooks.get = async () => ({ done: [], pending: [] }); // the demo has no server to ask: nothing is answered yet

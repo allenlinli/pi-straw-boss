@@ -96,7 +96,7 @@ export interface TowerPanel {
 	isHead?(workspace: string): boolean;
 }
 /** Auto mode's panel (server/autoops.ts): the switch, the head's pending `on` and its confirm, all the server's own state. A write here is the boss's own act (the page's token and CSRF, a paired phone too); an operate session never reaches it. */
-export interface AutoPanel { /** What the page snapshot carries (net.ts `AutoSnap`): undefined when auto mode is off and nothing waits. */ snap(): { on: boolean; since?: string; pending?: { id: string; said: string; expires: number } } | undefined; state(): Reply; set(on: boolean, remote: boolean): Reply; confirm(id: unknown, remote: boolean): Reply }
+export interface AutoPanel { /** What the page snapshot carries (net.ts `AutoSnap`): undefined when auto mode is off and nothing waits. */ snap(): { on: boolean; since?: string; pending?: { id: string; said: string; expires: number } } | undefined; /** Whether this server can switch auto mode at all (not an unattended device): the page shows its chip only then. */ available(): boolean; state(): Reply; /** The last return list, or `{ report: null }` (the page's return panel). */ report(): Reply; set(on: boolean, remote: boolean): Reply; confirm(id: unknown, remote: boolean): Reply }
 /** What a paired device may ask: read the state, answer a forwarded confirm or dialog, and ask a box to stop one main (a graceful stop the box decides on; docs/specs/2026-11-07-link-remote-stop.md, decision 10). Everything else changes who may command this computer, so only its own page does it. */
 const REMOTE_LINK = ["state", "confirm-answer", "dialog-answer", "unit-stop"];
 const LINK_NAMES = ["enable", "state", "create", "invite", "invite-text", "invite-cancel", "decide", "join-start", "join-project", "join-cancel", "prefill-clear", "remove", "role", "rotate", "trust", "leave", "confirm-answer", "dialog-answer", "unit-stop", "operate", "operate-off", "operate-on"];
@@ -259,7 +259,7 @@ export function createControl({ auto, board, bridge, lan, overlay, link, server:
 			if (!auto) return no(503, "unavailable", "This server has no auto mode.");
 			if (operate) return no(403, "local_only", "Auto mode is switched at the computer or on a paired phone, never from a box.");
 			if (!key && !action) return typeof json.on === "boolean" ? auto.set(json.on, remote) : json.on === undefined ? auto.state() : no(400, "bad_request", "on is true or false.");
-			return key === "confirm" && !action ? auto.confirm(json.id, remote) : no(404, "not_found", "No such action.");
+			return key === "report" && !action ? auto.report() : key === "confirm" && !action ? auto.confirm(json.id, remote) : no(404, "not_found", "No such action.");
 		}
 		if (scope === "board") return board && key === "clear" && !action ? board.clear(json) : no(board ? 404 : 503, board ? "not_found" : "unavailable", board ? "No such action." : "This server shows no work board.");
 		if (scope === "doc") return docs && action === "answer" ? docs.answer(key, json) : no(docs ? 404 : 503, docs ? "not_found" : "unavailable", docs ? "No such action." : "This server shows no documents.");

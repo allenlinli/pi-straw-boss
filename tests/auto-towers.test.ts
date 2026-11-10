@@ -176,6 +176,7 @@ test("the return list covers the towers and the head: the parked waits per tower
 	assert.equal(off.ok, true);
 	const report = reportFile();
 	assert.deepEqual(report.parked.map((p) => [p.id, p.tower]).sort(), [["W1", "Alpha"], ["W1", head.label]].sort());
+	assert.deepEqual(report.parked.map((p) => [p.tower, p.head]).sort(), [["Alpha", undefined], [head.label, true]].sort(), "only the head's row is marked, so the page never mixes the two W1");
 	assert.deepEqual(report.lines.map((l) => [l.session, l.tool, l.kind, l.count]), [["main-1", "ask_user_question", "cancelled", 1], ["main-1", "robot_hand", "refused", 2], ["child-2", "question", "refused", 1]]);
 	assert.deepEqual(report.stillWaiting.map((l) => l.session), ["main-3"]);
 	const text = String(off.report);
@@ -185,6 +186,9 @@ test("the return list covers the towers and the head: the parked waits per tower
 	// the parked flag lived for the period
 	assert.equal(memory().entries[0]!.parked, undefined);
 	assert.equal(loadMemory(world.slot, head.workspace).memory.entries[0]!.parked, undefined);
+	// the panel lists them, so they are `listed`: open waits with no second notice
+	assert.equal(memory().entries[0]!.listed, true);
+	assert.equal(loadMemory(world.slot, head.workspace).memory.entries[0]!.listed, true);
 	// the head gets one event
 	const events = readQueue(world.slot, head.workspace).filter((e) => e.kind === "notice" && e.text.startsWith("Auto mode ended at"));
 	assert.equal(events.length, 1);

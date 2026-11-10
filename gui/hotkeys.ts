@@ -17,7 +17,7 @@ const TYPING = "input, textarea, select, [role=textbox], [role=combobox], [role=
 const NATIVE = "button, a, summary, [role=button], [role=link]";
 const OPTION = ".ask-opt, [role=radio], [role=checkbox]";
 /** What owns the keyboard while it is open. */
-export const MODAL = "dialog.sheet[open], dialog.lightbox[open], [popover]:popover-open";
+export const MODAL = "dialog.sheet[open], dialog.lightbox[open], [popover]:popover-open, dialog.auto-back[open]";
 
 /**
  * One row of a keymap: the keys (compared lowercase), what they ask for, and how the target gates them. `native`: the key keeps the activation of a focused

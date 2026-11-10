@@ -66,6 +66,8 @@
     <!-- What acts on the map's contents comes and goes with them, so it sits here rather than shift the header. -->
     <div class="menu-pop hud-pop" id="bar-pop" popover role="group" aria-label="More" data-m-label="menu_more">
       <div class="bar-acts">
+        <!-- Auto mode's chip and switch (auto.ts `mountAutoSwitch`): in this strip above 640 px, behind the ⋯ on a phone. -->
+        <div class="auto-sw" id="auto-sw"></div>
         <a class="pair-btn head-btn" id="head-btn" href="head" data-route="head" hidden data-m-label="head_tower" data-m-title="head_tower"><svg viewBox="0 0 512 512" aria-hidden="true"><use data-icon="crown" href="#i-crown"/></svg><span data-m="head_tower">Head tower</span><i class="dot" hidden></i></a>
         <button class="pair-btn" id="dismiss-all" type="button" data-close="dismiss-all" hidden></button>
         <button class="pair-btn" id="stashed" type="button" popovertarget="stashed-pop" aria-haspopup="dialog" hidden></button>
@@ -137,6 +139,8 @@
 <div class="dock" id="dock" aria-label="Alerts" data-m-label="alerts" role="region" inert></div>
 <!-- The Reload link is the way out of a page whose scripts never ran (a chunk that failed to load): CSS reveals it after 10 s, connect.ts removes it once the page has booted, and being a plain link to the same URL it needs no script and keeps the token path and query. Both languages, since no script has chosen one. -->
 <!-- The page has no live state yet (connect.ts): open from the first byte, with the app root above inert, until the stream's first snapshot; it comes back whenever the stream is lost. -->
+<!-- The return panel (autoback.ts): what auto mode left, when the boss is back. Opened by the page, from a chunk of its own. -->
+<dialog class="auto-back" id="auto-back" hidden></dialog>
 <dialog class="connect" id="connect" open aria-labelledby="connect-text" data-state="connecting"><div class="connect-card"><i class="connect-ring" aria-hidden="true"></i><p id="connect-text" role="status" data-m="connect_connecting">Connecting…</p><button class="pair-btn connect-retry" id="connect-retry" type="button" data-m="connect_retry" hidden>Try again</button><a class="pair-btn connect-reload" id="connect-reload" href="">Reload · 重新載入</a></div></dialog>
 <script type="module" src="./main.ts"></script>
 </body>

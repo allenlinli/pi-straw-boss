@@ -19,6 +19,7 @@ export function autoPanel(auto: AutoMode, unattended: () => boolean = () => fals
 	return {
 		snap: () => { const v = auto.view(); return v.on || v.pending ? { on: v.on, ...(v.since ? { since: v.since } : {}), ...(v.pending ? { pending: { id: v.pending.id, said: v.pending.said, expires: v.pending.expires } } : {}) } : undefined; },
 		state: () => ({ status: 200, body: auto.view() }),
+		report: () => ({ status: 200, body: { report: auto.report() ?? null } }),
 		set: (on, remote) => none() ?? answer(on ? auto.switchOn(by(remote)) : auto.switchOff(by(remote))),
 		confirm: (id, remote) => none() ?? answer(auto.confirm(id, by(remote))),
 	};

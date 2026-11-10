@@ -20,7 +20,7 @@ description: pi-straw-boss 給智慧體的每個工具，以及每個 /boss 指�
 | `board_set` | 分頁的主智慧體 | 覆寫它自己的工作看板項目（一行與最多 8 個清單項目）；`auto: true` 交還給自動填入，`clear: true` 刪除它。 |
 | `boss_server` | 已加入的 session | sb server 的 `status`（server 沒在跑時也可用）、它的 `logs`（最多 200 行），或附理由 `restart`。老闆停掉 server 時會被拒絕，每分鐘最多一次，且在遠端 turn 中絕不可用。 |
 | `link_request` | 有人看管的電腦上的每個 session，以及本機塔台執行 | 附理由請求一個 Straw Link 動作（create、invite、join、trust、leave、remove、role、rotate）。它絕不會未經詢問就執行：老闆要在對話框裡核准。 |
-| `boss_open_main` | 塔台 | 為沒有 session 負責的請求，開一個帶新主智慧體的分頁。`role: "train"` 依整合者的清單開啟火車；`role: "integrator"` 加上 `project`（sb server 的執行）把車廂單送給專案唯一的整合者，沒有在跑的就開一個，當成塔台自己的主智慧體。 |
+| `boss_open_main` | 塔台 | 為沒有 session 負責的請求，開一個帶新主智慧體的分頁。`role: "train"` 依整合者的清單開啟火車；`role: "integrator"`（sb server 的執行）把車廂單送給專案唯一的整合者，沒有在跑的就開一個，當成塔台自己的主智慧體。 |
 | `boss_close_main` | 塔台 | 等它裡面沒有東西在跑，關掉這座塔台開的主智慧體。 |
 | `tower_list` | 塔台 | 每個工作區的塔台、發給它的訊息會送到誰、它的狀態，以及它的分頁在做什麼。 |
 | `tower_send` | 塔台 | 發訊息給另一座塔台（用工作區 id 或標籤）或全部；附 `device` 則發給隊友電腦上的塔台。 |

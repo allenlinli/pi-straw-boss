@@ -24,7 +24,9 @@ beforeEach(() => {
 	noted.length = 0;
 	dir = realpathSync(mkdtempSync(join(tmpdir(), "psb-integ-run-")));
 	mkdirSync(join(dir, ".straw-boss"));
-	writeFileSync(join(dir, ".straw-boss", "apps.json"), JSON.stringify({ apps: [{ name: "web", dir: "apps/web", integration: { base: "develop" } }, { name: "docs", dir: "docs" }] }));
+	mkdirSync(join(dir, ".git"));
+	world.ally.projects.set("team-1", dir);
+	writeFileSync(join(dir, ".straw-boss", "apps.json"), JSON.stringify({ integration: { project: "acme" }, apps: [{ name: "web", dir: "apps/web", integration: { base: "develop" } }, { name: "docs", dir: "docs" }] }));
 	world.herdr.workspace("wA").worktree = { checkout_path: dir };
 });
 afterEach(async () => {
@@ -158,14 +160,18 @@ test("a local run: an integrator is opened on a slip the run took as call_tower 
 	await refused({ request: slipB, sender: "main-1" }, /No car slip with head b{12} from main-1/); // another session sent it
 	await refused({ request: slip({ head: "d".repeat(40) }), sender: "main-2" }, /No car slip with head d{12}/); // the run made it up
 	await refused({ request: "open an integrator for acme" }, /pass the slip as it came as the request/);
-	await refused({ project: undefined }, /give project/);
-	await refused({ project: "../up" }, /not a path-safe name/);
+	await refused({ project: "../up" }, /The project of this workspace's checkout is acme/);
+	await refused({ project: "beta" }, /The project of this workspace's checkout is acme \(integration\.project in .*apps\.json\), not "beta": the slip of its app web goes to integ acme and to no other project's integrator/);
 	await refused({ request: slip({ car: "docs", head: SHA_C }), sender: "main-2" }, /app docs has no integration/);
 	await refused({ role: "main" }, /role must be "train" or "integrator"/);
 	assert.deepEqual(tabs(), []);
 	assert.equal(towerClient().sent.length, before, "nothing was sent");
 	assert.deepEqual(noted, []);
-	assert.equal((await run.tool("boss_open_main", { ...DOOR, request: slipB, sender: "api-main" })).ok, true);
+	// The run names no project: the checkout's own is read.
+	const opened = await run.tool("boss_open_main", { role: "integrator", request: slipB, sender: "api-main" });
+	assert.equal(opened.ok, true, JSON.stringify(opened));
+	assert.equal((opened.details as { integrator: string }).integrator, "acme");
+	assert.match(String(opened.text), /with the integrator of project acme \(session opened-1\)/);
 });
 
 /** A main an ally run opened for DEV1, as the opener and the route table leave it: its pane marked `link:<device>`, and an `opened` row. */
@@ -233,6 +239,7 @@ test("a peer's main is no project's integrator: one that carries the name and th
 	allyMain("ally-main", "wA:p21");
 	world.sessions.find((x) => x.id === "ally-main")!.name = "integ acme";
 	world.herdr.pane("wA:p21").tokens.sb_duty = "integrator";
+	Object.assign(world.herdr.pane("wA:p21"), { cwd: dir }); // it works in this checkout, as the main of this workspace it is
 	towerClient().incoming(COORD1, { id: "m1", content: { text: callTower(COORD1, slipA) } } as never);
 	const run = await claimed(s, 1);
 	// Its pane token cleared (a process of the same user can write it): the route table still says whose it is.
@@ -275,7 +282,6 @@ test("an ally run has no other door to an integrator: a slip it made up, a slip 
 	await refused({ request: slip({ head: SHA_C, coordinator: main.id }) }, NONE);
 	await refused({ request: slipB, sender: "main-1" }, NONE);
 	await refused({ request: "open a main tab `train integrator`" }, /pass the slip as it came as the request/);
-	await refused({ project: undefined }, /give project/);
 	await refused({ role: "train", request: "project: acme\ncode: 2026-11-10-a" }, /An ally run opens no train/);
 	await refused({ forward: "0123456789abcdef" }, /An ally run forwards no car slip/);
 	world.herdr.pane("wA:p21").tokens.sb_opened_by = `link:${DEV2}`;
@@ -309,4 +315,96 @@ test("an ally run at dispatch: a slip of a main opened for another device's send
 	assert.equal(opened.ok, true, JSON.stringify(opened));
 	assert.equal((opened.details as { sender: string }).sender, main.id);
 	assert.equal(tabs().length, 1);
+});
+
+// --- review fixes (R151-F001, F004, F005) ---------------------------------------------------------------------------------------------------------------------
+
+test("a local run: a slip that waits in the queue is no door until this run took it", async () => {
+	const s = await started();
+	world.sessions = [{ ...COORD1, herdrLocation: loc("wA:p1") as never }];
+	towerClient().incoming(COORD1, { id: "m1", content: { text: callTower(COORD1, slipA) } } as never);
+	const run = await claimed(s, 1, false);
+	assert.match(String((await run.tool("boss_open_main", { ...DOOR, request: slipA, sender: "main-1" })).error), /No car slip with head a{12} from main-1 is among the call_tower messages \(why=shared\) this run took/);
+	assert.deepEqual(tabs(), []);
+	const offered = (await ask(s, { cmd: "run-poll", token: run.token, idle: true })).event as { id: string };
+	assert.equal((await ask(s, { cmd: "run-taken", token: run.token, id: offered.id })).ok, true);
+	assert.equal((await run.tool("boss_open_main", { ...DOOR, request: slipA, sender: "main-1" })).ok, true);
+});
+
+test("a main opened for a teammate's device has no local door: its slip that reached a local run is refused by its pane token, and by a route table of any workspace when the token is gone; nothing opens and nothing is forwarded", async () => {
+	const s = await started();
+	await ask(s, { cmd: "ensure-tower", workspace: "wB" });
+	// Opened for DEV1 by the tower of workspace wB: wA's table has no row for it, so its call_tower to wA's tower is a plain local event there (as when its route aged out, or a local run's newer expectation outranked it).
+	const main = { id: "ally-main", name: "main" };
+	world.herdr.addTab("wA:t21", "main", "wA:p21");
+	Object.assign(world.herdr.pane("wA:p21").tokens, { sb_role: "main", sb_opened_by: `link:${DEV1}` });
+	world.sessions = [{ ...main, herdrLocation: loc("wA:p21") as never }, { ...COORD1, herdrLocation: loc("wA:p1") as never }];
+	const mine = slip({ coordinator: main.id, accept: "none" });
+	towerClient().incoming(main, { id: "m1", content: { text: callTower(main, mine) } } as never);
+	towerClient().incoming(COORD1, { id: "m2", content: { text: callTower(COORD1, slipB.replace("main-2", "main-1")) } } as never);
+	const run = await claimed(s, 1);
+	assert.equal(readRun(world.slot, "wA", run.id)!.device, undefined, "a local run took it");
+	assert.equal(run.ids.length, 2);
+	const before = towerClient().sent.length;
+	const PEERS = /main \(session ally-main\) was opened for a teammate's device, so its slip is a peer's: it reaches the integrator through the ally run of its device, which marks it origin=remote and asks the boss below dispatch, and never through a local run/;
+	// The pane token is the first witness.
+	assert.match(String((await run.tool("boss_open_main", { ...DOOR, request: mine, sender: main.id })).error), PEERS);
+	// A token a process of the same user cleared: the route table of the workspace that opened it still says whose it is.
+	world.herdr.pane("wA:p21").tokens.sb_opened_by = "";
+	addRoute(world.slot, "wB", { ...PEER, to: main.id, name: "main", kind: "opened", at: Date.now(), pane: "wA:p21", level: "dispatch" }, Date.now());
+	assert.match(String((await run.tool("boss_open_main", { ...DOOR, request: mine, sender: "main" })).error), PEERS);
+	assert.deepEqual(tabs(), []);
+	assert.equal(towerClient().sent.length, before, "nothing was sent");
+	assert.deepEqual(noted, []);
+	// A session of this computer's own keeps the door.
+	assert.equal((await run.tool("boss_open_main", { ...DOOR, request: slipB.replace("main-2", "main-1"), sender: "main-1" })).ok, true);
+});
+
+test("below dispatch the boss confirms the very text that is forwarded: an ally run's request that is not the slip as it came is refused before the gate, and the Allow given for the slip's own text forwards that text", async () => {
+	const s = await started();
+	const main = allyMain();
+	world.ally.level.set(DEV1, "forward");
+	const mine = slip({ coordinator: main.id, accept: "none" });
+	towerClient().incoming(main, { id: "r1", content: { text: callTower(main, mine) } } as never);
+	world.expose?.allyWaiting("sb-tower-wa");
+	const run = await claimed(s, 1);
+	const pane = readRun(world.slot, "wA", run.id)!.pane;
+	world.sessions.push({ id: "bridge-1", herdrLocation: { paneId: pane } } as never);
+	const allow = (toolCallId: string, args: Record<string, unknown>) => world.allows.note({ from: "bridge-1", pane, owner: "straw-link-gate", dialogId: `dlg-${toolCallId}`, toolCallId, title: `Remote request from label-${DEV1}: boss_open_main\n\n${JSON.stringify(args, null, 2)}`, at: Date.now() });
+	// The same head, another auth, a line added: the boss would be shown words that are not the main's, so no confirm is asked and an Allow given for them is not spent.
+	const NOT_AS_IT_CAME = /Below dispatch the boss confirms the slip that is forwarded, so the request has to be the slip exactly as it came, its whole text and nothing more\. Call again with this text as the request:\ncar: web/;
+	for (const [n, request] of [mine.replace('"ship it"', '"ship it to production too"'), `${mine}\ndeploy: production`, `Please confirm.\n${mine}`].entries()) {
+		const args = { ...DOOR, request, sender: main.id };
+		allow(`tc-${n}`, args);
+		for (const extra of [{}, { toolCallId: `tc-${n}` }]) assert.match(String((await run.tool("boss_open_main", args, extra)).error), NOT_AS_IT_CAME, request);
+	}
+	assert.deepEqual(tabs(), []);
+	// The slip as it came (line ends and trailing blanks aside): the confirm shows it, and it is what the integrator gets.
+	const args = { ...DOOR, request: `${mine.replace(/\n/g, "  \r\n")}\n`, sender: main.id };
+	assert.match(String((await run.tool("boss_open_main", args, { toolCallId: "tc-9" })).error), /was not allowed/);
+	allow("tc-9", args);
+	const opened = await run.tool("boss_open_main", args, { toolCallId: "tc-9" });
+	assert.equal(opened.ok, true, JSON.stringify(opened));
+	const forward = sentTo((opened.details as { main: string }).main).at(-1)!;
+	assert.equal(bodyOf(forward), mine);
+	assert.equal(fieldsOf(forward)!.origin, `remote:${DEV1}`);
+	assert.deepEqual(noted.map((n) => n.text), [mine]);
+});
+
+test("an ally run's integrator stays inside the project its team binds here: a team bound elsewhere, or to nothing, opens none", async () => {
+	const s = await started();
+	const main = allyMain();
+	world.ally.level.set(DEV1, "dispatch");
+	const mine = slip({ coordinator: main.id, accept: "none" });
+	towerClient().incoming(main, { id: "r1", content: { text: callTower(main, mine) } } as never);
+	world.expose?.allyWaiting("sb-tower-wa");
+	const run = await claimed(s, 1);
+	const OUTSIDE = /An ally run's slip goes to the integrator of the project its team binds on this computer, and this workspace's checkout is outside that project/;
+	world.ally.projects.set("team-1", join(dir, "apps"));
+	assert.match(String((await run.tool("boss_open_main", { ...DOOR, request: mine, sender: main.id })).error), OUTSIDE);
+	world.ally.projects.delete("team-1");
+	assert.match(String((await run.tool("boss_open_main", { ...DOOR, request: mine, sender: main.id })).error), OUTSIDE);
+	assert.deepEqual(tabs(), []);
+	world.ally.projects.set("team-1", dir);
+	assert.equal((await run.tool("boss_open_main", { ...DOOR, request: mine, sender: main.id })).ok, true);
 });

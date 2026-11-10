@@ -23,6 +23,7 @@ An app without the `integration` field keeps the old flow.
 The sb server sends the coordinator a notice for each state of its car: received, returned, dropped, or landed.
 
 The integrator is the tower's own main: it is not one of the two mains a tower opens for requests, and a project has one on the whole computer.
+Its project is the checkout's: `integration.project` at the top of `apps.json`, else the repository's folder name. Set it when your integrator already runs under another name (`integ <project>`).
 On a shared box, a main opened for a teammate's device sends its car slip the same way, so the teammate asks for no integrator.
 
 ## What you set

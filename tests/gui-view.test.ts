@@ -213,14 +213,14 @@ test("/boss gui view with no sb server to ask is told as an error", async () => 
 	assert.equal(viewer.notices.at(-1)!.level, "error");
 });
 
-test("the docs name the command, the store, the meta, the event, and gui.json's optional view; the README lists the command in both languages", () => {
+test("the docs name the command, the store, the meta, the event, and gui.json's optional view; the command reference lists the command in both languages", () => {
 	const read = (f: string) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
 	const doc = read("docs/how-it-works.md");
 	for (const word of ["/boss gui view", "gui-prefs.json", '<meta name="sb-view"', "`view` event", "`gui-view`", "Follow server"]) assert.ok(doc.includes(word), word);
 	const contract = doc.split("\n").find((l) => l.startsWith("- **`gui.json` is a contract.**")) ?? "";
 	assert.match(contract, /`owner`, and `view`/);
 	assert.match(contract, /`view` \(optional, `standard`, `geek`, or `zen`, absent when the boss has set no default\)/);
-	for (const f of ["README.md", "README.zh-TW.md"]) assert.ok(read(f).includes("`/boss gui view`"), f);
+	for (const f of ["site/src/content/docs/reference/commands.md", "site/src/content/docs/zh-tw/reference/commands.md"]) assert.ok(read(f).includes("`/boss gui view`"), f);
 });
 
 test("a bare /boss gui view only reads: with the sb server down it says so and starts nothing, so a server stopped on purpose stays down", async () => {

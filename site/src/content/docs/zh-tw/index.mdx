@@ -1,0 +1,56 @@
+---
+title: pi-straw-boss
+description: 多個 pi 智慧體，同一個專案，互不衝突。
+template: splash
+hero:
+  tagline: 多個 pi 智慧體，同一個專案，互不衝突。每個 Herdr 分頁一個主智慧體，每個工作區一座塔台，並即時看到誰在做什麼。
+  image:
+    html: '<img src="/pi-straw-boss/docs/img/straw-net-gui.png" alt="瀏覽器裡的草網：各個基地與其塔台、智慧體、子智慧體的即時狀態" />'
+  actions:
+    - text: 開始使用
+      link: /pi-straw-boss/docs/zh-tw/guide/install/
+      icon: right-arrow
+    - text: 試用線上展示
+      link: https://wayne930242.github.io/pi-straw-boss/
+      icon: external
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/wayne930242/pi-straw-boss
+      icon: github
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+在同一個專案上跑好幾個智慧體，它們就會互相踩到：兩個開發伺服器搶同一個 port、兩個分支改同一份 migration，而且沒有一個智慧體知道其他智慧體的存在。
+pi-straw-boss 是一個 [pi](https://github.com/earendil-works/pi) 擴充套件，讓它們能找到彼此並協調，不需要排程器，也不需要新的服務。
+
+<CardGrid>
+	<Card title="人人加入" icon="puzzle">
+		[Herdr](https://herdr.dev) 裡的每個 pi 在啟動時都會加入所在分頁的網。工作變多的智慧體會成為該分頁的主智慧體；智慧體開始互相衝突時，每個工作區會開一座塔台。
+	</Card>
+	<Card title="塔台負責協調" icon="random">
+		塔台在自己工作區的各個主智慧體之間轉送工作，並與其他塔台溝通。你自己的主塔台接收你的指示，再把每項指示交給負責的工作區。
+	</Card>
+	<Card title="看見整張網" icon="laptop">
+		`/boss gui` 在瀏覽器裡即時顯示每個工作區、智慧體與子智慧體，也讓你從桌機或已配對的手機回答它們正在等的事。
+	</Card>
+	<Card title="合併火車" icon="rocket">
+		專案可以把審查過的分支批次放進火車：每列火車只審查一次、只跑一次重型關卡，接著部署，並產生一頁驗收頁。
+	</Card>
+	<Card title="跨電腦" icon="external">
+		Straw Link 把隊友電腦上的塔台連起來，無人值守的建置機也可以從它們接工作。
+	</Card>
+	<Card title="你不在的時候" icon="moon">
+		自動模式：告訴主塔台你要去睡了，在你回來之前沒有智慧體會等你；需要你處理的事會整理成一份清單交還給你。
+	</Card>
+</CardGrid>
+
+## 接著讀
+
+<CardGrid>
+	<LinkCard title="安裝" href="/pi-straw-boss/docs/zh-tw/guide/install/" description="一行指令，加上 Herdr 與 pi-intercom。" />
+	<LinkCard title="快速開始" href="/pi-straw-boss/docs/zh-tw/guide/quick-start/" description="四個指令，看網運作起來。" />
+	<LinkCard title="概念" href="/pi-straw-boss/docs/zh-tw/guide/concepts/" description="成員、主智慧體、塔台、主塔台與工作看板。" />
+	<LinkCard title="指令" href="/pi-straw-boss/docs/zh-tw/reference/commands/" description="每個工具與 /boss 指令。" />
+</CardGrid>

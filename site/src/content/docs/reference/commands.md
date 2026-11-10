@@ -97,7 +97,7 @@ The GUI's Memory panel does the same as `/boss memory`. See [Tower memory](/pi-s
 | `/boss gui` | Open the net in the browser, from any session; starts the sb server when none runs and prints the URL. |
 | `/boss gui stop` | Stop the GUI, until the next `/boss gui`. |
 | `/boss gui rotate` | Give the GUI a new token, after a confirm: every phone is unpaired and the old address answers 403. |
-| `/boss gui view [auto\|standard\|geek\|zen\|raven]` | Show or set the default view for devices on Auto. Only this command sets it. |
+| `/boss gui view`, `/boss gui view auto\|standard\|geek\|zen\|raven` | Show or set the default view for devices on Auto. Only this command sets it. |
 | `/boss gui remote`, `/boss gui remote off` | Reach the GUI from a phone over your tailnet. See [Phone and remote access](/pi-straw-boss/docs/guide/phone/). |
 | `/boss gui lan`, `/boss gui lan off`, `/boss gui lan reset` | Reach the GUI from a phone on the same Wi-Fi, without Tailscale. |
 | `/boss gui devices`, `/boss gui unpair <id\|all>` | List the paired phones; unpair one or all. |

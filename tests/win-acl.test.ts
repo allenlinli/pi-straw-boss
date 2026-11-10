@@ -9,7 +9,7 @@ import { cimCommand, parseCim } from "../src/server/lineage.ts";
 import { startCommand } from "../src/startof.ts";
 import { forgetSid, ownerGate, ownerSid, protectFolder, readDacl, runNative } from "../src/server/winprep.ts";
 
-// Real icacls and PowerShell on a Windows runner (the windows workflow's win-acl job; runneradmin is elevated with UAC off, the condition of the U12 refusal). No server is started (the launch test starts a node child that ends after 3 s).
+// Real icacls and PowerShell on a Windows runner (the windows workflow's win-acl job; runneradmin is elevated with UAC off, the condition of the U12 refusal). No server is started (the launch test starts a node child that ends after 8 s).
 const win = process.platform === "win32";
 const base = () => mkdtempSync(join(process.env.RUNNER_TEMP ?? process.env.TEMP ?? ".", "sb-acl-"));
 const icacls = (...args: string[]) => execFileSync("icacls.exe", args, { encoding: "utf8" });
@@ -100,7 +100,10 @@ test("#132: the launch script makes the process through WMI, leaves the ACL chec
 	forgetSid();
 	const dir = seeded("launch");
 	const token = "0123456789abcdef0123456789abcdef";
-	const spec = { command: process.execPath, args: ["-e", "setTimeout(() => {}, 3000)"], env: { ...process.env }, cwd: dir, options: { detached: true as const, stdio: "ignore" as const, windowsHide: true as const }, starterPid: process.pid, acl: { dir, token } };
+	// The child is a plain node: the runner's test-context variables would make it a test worker of this run.
+	const childEnv = { ...process.env };
+	for (const name of Object.keys(childEnv)) if (name.startsWith("NODE_")) delete childEnv[name];
+	const spec = { command: process.execPath, args: ["-e", "setTimeout(() => {}, 8000)"], env: childEnv, cwd: dir, options: { detached: true as const, stdio: "ignore" as const, windowsHide: true as const }, starterPid: process.pid, acl: { dir, token } };
 	const { file, args, options } = launchCommand(spec, process.env);
 	const stdout = execFileSync(file, args, options);
 	const answer = parseLaunchOutput(stdout);

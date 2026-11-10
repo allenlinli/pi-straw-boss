@@ -42,7 +42,7 @@ On a box several developers share, a unit's questions and notices go only to the
 
 A controller can also **operate** a box: its towers, mains, and workers show as bases on the controller's page, with their live terminals, for typing, Escape, and stopping a main, as far as the box's own policy allows.
 
-A box's card names each of its mains by its kind (coordinator, integrator, standing, or train), in the words the local page uses, when the box's build sends it; a box of an older build sends none, and its card reads as before.
+A box's card names each of its mains by its kind (coordinator, integrator, standing, or train), in the words and with the icons the local page uses, when the box's build sends it; a box of an older build sends none, and its card reads as before.
 A box's tower wakes a short run for each message and stands by between runs, so its unit says *run in progress* while one lasts and *standing by* after it, and its finished runs are a closed fold, *Tower runs*, on the box's base, apart from the agents' *Earlier runs*.
 
 See [Setting up an unattended device](/pi-straw-boss/docs/guide/unattended-device/).

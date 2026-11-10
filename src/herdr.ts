@@ -60,7 +60,7 @@ export function towerModel(stateDir: string, key: "towerModel" | "headModel" = "
 export const headModel = (stateDir: string): string | undefined => towerModel(stateDir, "headModel") ?? towerModel(stateDir);
 
 // The tower tab is labelled with the Nerd Font radio tower glyph (md-radio_tower, U+F043B) alone. The role marks (the `sb_mark` token, and the
-// dashboard's rows) are Font Awesome's star (U+F005) for a main agent and person (U+F007) for a member, and `[sub]` for a subagent.
+// dashboard's rows) are one glyph per kind (`KIND_MARK` below); a main with no known kind keeps Font Awesome's star (U+F005), a member the person (U+F007), and a subagent with no known kind `[sub]`.
 export const TOWER_LABEL = "\u{f043b}";
 // The head tower's tab is labelled with the Nerd Font crown (md-crown, U+F01A5; checked against Hack Nerd Font's glyph names, which also give U+F043B as md-radio_tower).
 export const HEAD_LABEL = "\u{f01a5}";
@@ -68,6 +68,12 @@ export const HEAD_LABEL = "\u{f01a5}";
 export type ServiceKind = "tower" | "head";
 export const SEAT_LABEL: Record<ServiceKind, string> = { tower: TOWER_LABEL, head: HEAD_LABEL };
 export const MARK = { main: "\uf005", member: "\uf007", train: "\uf238", integrator: "\uf126" } as const;
+/**
+ * The mark of each kind (docs/specs/2026-11-09-agent-kinds.md D16), the same drawings as the page's icons. Checked against the glyph names of Nerd Fonts 3.5.1 (glyphnames.json), the version NOTICE.md pins:
+ * coordinator md-ship_wheel U+F0833, integrator fa-code_fork U+F126, standing md-lighthouse U+F09FF, train fa-train U+F238, worker md-wrench U+F05B7, scout md-binoculars U+F00A5,
+ * planner md-pencil_ruler U+F1353, reviewer md-magnify U+F0349, watchdog md-dog U+F0A43. A main with no known kind keeps `MARK.main`, a subagent with none `ARROW`.
+ */
+export const KIND_MARK = { coordinator: "\u{f0833}", integrator: MARK.integrator, standing: "\u{f09ff}", train: MARK.train, worker: "\u{f05b7}", scout: "\u{f00a5}", planner: "\u{f1353}", reviewer: "\u{f0349}", watchdog: "\u{f0a43}" } as const;
 export const ARROW = "[sub]";
 /** The `sb_mark` prefix of an ally run's pane; the device's label follows it. */
 export const ALLY_MARK = "[ally]";

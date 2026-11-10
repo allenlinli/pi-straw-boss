@@ -106,7 +106,7 @@ export function mountPanels(deps: PanelDeps) {
 		el.style.opacity = String(Math.max(0, 1 - 0.3 * depth));
 		el.toggleAttribute("inert", depth > 0);
 		el.setAttribute("aria-label", `${a.name}: ${doing(a.note, a.mark)}`);
-		fillPlate(el.querySelector(".plate")!, a.role, a.mark);
+		fillPlate(el.querySelector(".plate")!, a.role, a.mark, undefined, locate(deps.net?.(), unitOf(a))?.u.duty);
 		text(el, "h3", a.name);
 		text(el, ".role", ((u) => (u ? roleWord(u.role, u.duty) : roleName(a.role)))(locate(deps.net?.(), unitOf(a))?.u));
 		say(el, ".state", a.note, a.mark, a.gone ? m.left_net() : undefined);
@@ -133,7 +133,7 @@ export function mountPanels(deps: PanelDeps) {
 		if (!done.length && donePop.matches(":popover-open")) donePop.hidePopover();
 		sync(doneList, done.map((a) => ({ ...a, id: a.key })), doneEl, (el, a) => {
 			const it = intels.get(a.key);
-			fillPlate(el.querySelector(".plate")!, a.role, a.mark);
+			fillPlate(el.querySelector(".plate")!, a.role, a.mark, undefined, locate(deps.net?.(), unitOf(a))?.u.duty);
 			text(el, ".name", a.name);
 			text(el, "small", `${deps.label(a.ws)} · ${it?.said ?? doing(a.note, a.mark)}`);
 			aim(el.querySelector(".done-go")!, { view: "session", ws: a.ws, key: unitOf(a), ...(it?.at && { at: it.at }) });
@@ -171,7 +171,7 @@ export function mountPanels(deps: PanelDeps) {
 			text(button, "#alert-count", String(asking.length));
 			button.title = asking.length ? m.alerts_title({ tally: tally(asking) }) : "";
 			text(button, "#alert-text", head ? `${head.name} · ${head.trust ? m.trust_title() : doing(head.note, head.mark)}` : m.no_alerts());
-			sync(button.querySelector(".faces")!, asking.slice(0, 3).map((a) => ({ ...a, id: a.key })), () => html(PLATE), (face, a) => fillPlate(face, a.role, a.mark));
+			sync(button.querySelector(".faces")!, asking.slice(0, 3).map((a) => ({ ...a, id: a.key })), () => html(PLATE), (face, a) => fillPlate(face, a.role, a.mark, undefined, locate(deps.net?.(), unitOf(a))?.u.duty));
 			drawDone(queue);
 			work.toggleAttribute("inert", open.at(-1)?.wait !== undefined); // a wait's dialog is modal for presses: a tap on a row or card behind it must not press another wait
 		},

@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { type Duty, dutyOfAgent } from "./duty.ts";
 import type { Pane, Session } from "./herdr.ts";
 
 // The tower dashboard's data, without its screen: the marks, the rows, and the subagents a session launched. It imports no pi-tui,
@@ -13,7 +14,7 @@ import type { Pane, Session } from "./herdr.ts";
 export type Mark = "working" | "waiting" | "idle" | "done" | "error" | "unknown" | "commanding";
 /** One line of the tree. `net` rows are tab (0) > session (1) > subagent (2); `towers` rows are flat. */
 /** `ended`: a subagent whose run is over (pi-herdr-agents recorded it done, or its pane is gone or back at a shell); its parent has the result. */
-export interface Row { group: "net" | "towers"; depth: number; mark: Mark; text: string; kind?: string; note?: string; workspace?: string; id?: string; file?: string; pane?: string; ended?: boolean; finished?: boolean }
+export interface Row { group: "net" | "towers"; depth: number; mark: Mark; text: string; kind?: string; note?: string; workspace?: string; id?: string; file?: string; pane?: string; ended?: boolean; finished?: boolean; /** A subagent's kind (D16): the agent role its launch script names, or a main's `sb_duty` (dashboard.ts). */ duty?: Duty }
 
 const HERDR_MARK: Record<string, Mark> = { working: "working", blocked: "waiting", idle: "idle", done: "done" };
 const RECENT_MS = 10 * 60_000;
@@ -50,7 +51,7 @@ export function readJson(path: string): Record<string, unknown> {
 const RACY_MS = 2000;
 const childPanes = new WeakMap<Pane[], { size: number; index: Map<string, Pane> }>();
 const listings = new Map<string, { mtime: bigint; readAt: number; names: string[] }>();
-const scripts = new Map<string, { mtimeMs: number; session?: string; persistent: boolean }>();
+const scripts = new Map<string, { mtimeMs: number; session?: string; persistent: boolean; agent?: string }>();
 const SUFFIX = /^(.*)-[0-9a-f]{1,8}-[0-9a-f]{1,8}-[0-9a-f]{1,4}$/;
 
 /** The child ids a pane's session file can belong to: `ownFile` read from the file's side, so one pass over the panes replaces a match per child and pane. */
@@ -91,12 +92,12 @@ function listed(dir: string): string[] {
 	}
 }
 
-/** The session file a launch script names and whether it launched a persistent specialist, read again only when the script changed. */
-function scriptRead(path: string): { session?: string; persistent: boolean } | undefined {
+/** The session file a launch script names, the agent role it launched (`PI_SUBAGENT_AGENT`), and whether it launched a persistent specialist, read again only when the script changed. */
+function scriptRead(path: string): { session?: string; persistent: boolean; agent?: string } | undefined {
 	try {
 		const { mtimeMs } = statSync(path), cached = scripts.get(path);
 		if (cached?.mtimeMs === mtimeMs) return cached;
-		const text = readFileSync(path, "utf8"), read = { mtimeMs, session: text.match(/PI_SUBAGENT_SESSION='([^']+)'/)?.[1], persistent: /\bPI_SUBAGENT_PERSISTENT=1\b/.test(text) };
+		const text = readFileSync(path, "utf8"), read = { mtimeMs, session: text.match(/PI_SUBAGENT_SESSION='([^']+)'/)?.[1], persistent: /\bPI_SUBAGENT_PERSISTENT=1\b/.test(text), agent: text.match(/\bPI_SUBAGENT_AGENT='([^']+)'/)?.[1] };
 		if (scripts.size > 500) scripts.clear();
 		scripts.set(path, read);
 		return read;
@@ -130,8 +131,8 @@ export function subagents(parent: Pane | undefined, all: Pane[], now: number, li
 			const file = (pane?.agent === "pi" ? pane.agent_session?.value : undefined) ?? launch?.session;
 			const name = pane?.label || (script?.slice(0, -`-${id}.sh`.length) ?? id.slice(0, 8));
 			const doing = activity.toolActive ? String(activity.toolName) : String(activity.phase ?? "");
-			const ended = pane?.agent !== "pi" || recordedDone;
-			return { group: "net" as const, depth: 2, mark, text: name, kind: "subagent", workspace: pane?.workspace_id, id, file, pane: pane?.agent === "pi" ? pane.pane_id : undefined, ...(ended && { ended }), ...(recordedDone && { finished: true }), note: { working: doing, waiting: "waiting on a question", done: "finished" }[mark as "working"] };
+			const ended = pane?.agent !== "pi" || recordedDone, duty = dutyOfAgent(launch?.agent);
+			return { group: "net" as const, depth: 2, mark, text: name, kind: "subagent", ...(duty ? { duty } : {}), workspace: pane?.workspace_id, id, file, pane: pane?.agent === "pi" ? pane.pane_id : undefined, ...(ended && { ended }), ...(recordedDone && { finished: true }), note: { working: doing, waiting: "waiting on a question", done: "finished" }[mark as "working"] };
 		})
 		.sort((a, b) => Number(a.mark === "done") - Number(b.mark === "done") || a.text.localeCompare(b.text))
 		.slice(0, limit);

@@ -1,3 +1,4 @@
+import { isCoordinatorDuty } from "./duty.ts";
 import type { Mark } from "./netdata.ts";
 import type { Base, Net } from "./net.ts";
 
@@ -34,7 +35,7 @@ export function trackActivity(now = Date.now) {
 				} else if (s.mark !== u.mark && fresh) delete s.since;
 				else if (s.mark !== u.mark) (s.since = at), s.ticks.push({ at, mark: u.mark }), events.push({ at, ws: b.id, key, name, mark: u.mark, kind: "mark" });
 				else if (s.note !== u.note && u.note) s.ticks.push({ at, mark: u.mark });
-				if (u.duty && s.duty && s.duty !== u.duty) events.push({ at, ws: b.id, key, name, mark: u.mark, kind: "duty", from: s.duty, to: u.duty });
+				if (isCoordinatorDuty(u.duty) && isCoordinatorDuty(s.duty) && s.duty !== u.duty) events.push({ at, ws: b.id, key, name, mark: u.mark, kind: "duty", from: s.duty, to: u.duty });
 				[s.mark, s.note, s.name, s.ws, s.duty] = [u.mark, u.note, name, b.id, u.duty ?? s.duty];
 				s.ticks.splice(0, s.ticks.length - TICKS);
 				if (s.since !== undefined) u.since = s.since;

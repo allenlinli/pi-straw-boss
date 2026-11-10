@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
-import { MARK } from "../src/herdr.ts";
+import { KIND_MARK, MARK } from "../src/herdr.ts";
 import { type Board, writeBoard, writeYard, type Yard } from "../src/train/board.ts";
 import { stepOf } from "../src/trainsign.ts";
 import { until, World } from "./fakes.ts";
@@ -49,9 +49,9 @@ test("a main of the integrator kind carries the integrator's key and mark, its m
 	const other = world.agent({ id: "main-2", name: "Docs", pane: "wA:p3", tab: "wA:t2" });
 	await other.start();
 	await other.promote();
-	await until(() => world.herdr.pane("wA:p3").tokens.sb_mark === MARK.main, "an ordinary main");
+	await until(() => world.herdr.pane("wA:p3").tokens.sb_mark === KIND_MARK.coordinator, "an ordinary main");
 	assert.match(world.herdr.pane("wA:p3").tokens.sb_order!, /^000\.1\.\d{3}\.0\.000$/);
-	assert.equal(world.herdr.pane("wA:p3").tokens.sb_mark, MARK.main);
+	assert.equal(world.herdr.pane("wA:p3").tokens.sb_mark, KIND_MARK.coordinator);
 	const member = world.agent({ id: "mem-1", name: "Helper", pane: "wA:p2", tab: "wA:t1" });
 	await member.start();
 	await until(() => /^000\.05\.\d{3}\.1\.001$/.test(world.herdr.pane("wA:p2").tokens.sb_order ?? ""), "the integrator's member");
@@ -63,7 +63,7 @@ test("TT-F002: a pane's tokens move no member: a main's role and mark written by
 	const main = world.agent({ id: "main-1", name: "Docs", pane: "wA:p1", tab: "wA:t1" });
 	await main.start();
 	await main.promote();
-	await until(() => world.herdr.pane("wA:p1").tokens.sb_mark === MARK.main, "an ordinary main");
+	await until(() => world.herdr.pane("wA:p1").tokens.sb_mark === KIND_MARK.coordinator, "an ordinary main");
 	world.herdr.pane("wA:p1").tokens.sb_mark = MARK.integrator; // what any session can write with pane.report
 	const member = world.agent({ id: "mem-1", name: "Helper", pane: "wA:p2", tab: "wA:t1" });
 	await member.start();
@@ -81,7 +81,7 @@ test("TT-F003: a yard of a writer that is gone gives its main no mark and its me
 	const member = world.agent({ id: "mem-1", name: "Helper", pane: "wA:p2", tab: "wA:t1" });
 	await member.start();
 	await until(() => world.herdr.pane("wA:p1").tokens.sb_mark !== undefined && world.herdr.pane("wA:p2").tokens.sb_order !== undefined, "both published");
-	assert.equal(world.herdr.pane("wA:p1").tokens.sb_mark, MARK.main);
+	assert.equal(world.herdr.pane("wA:p1").tokens.sb_mark, KIND_MARK.coordinator);
 	assert.match(world.herdr.pane("wA:p1").tokens.sb_order!, /^000\.1\./);
 	assert.match(world.herdr.pane("wA:p2").tokens.sb_order!, /^000\.1\./);
 });

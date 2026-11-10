@@ -257,7 +257,7 @@ test("the head's marks: the map node and the chat avatar carry the crown in the 
 	const css = readFileSync(new URL("../gui/style.css", import.meta.url), "utf8"), html = readFileSync(new URL("../gui/index.html", import.meta.url), "utf8"), chat = readFileSync(new URL("../gui/chat.ts", import.meta.url), "utf8");
 	assert.match(html, /id="head-node"[^>]*><svg class="head-crown"[^>]*><use data-icon="crown" href="#i-crown"\/>/, "the head band's mark is the crown");
 	assert.match(css, /\.head-node \.head-crown, \.tx\.in\.head \.ava \{[^}]*color: var\(--gold\)/);
-	assert.match(chat, /icon\(me\.head \? "crown" : me\.role\)/, "the head's messages wear the crown");
+	assert.match(chat, /icon\(me\.head \? "crown" : me\.role, me\.duty\)/, "the head's messages wear the crown");
 	assert.match(css, /\.comms-head\[data-head\] \.head-menu \{ display: none; \}/);
 });
 

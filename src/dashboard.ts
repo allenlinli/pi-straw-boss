@@ -1,6 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { ARROW, headOf, type HerdrRun, type HerdrWorld, isHead, isSub, MARK, parentOf, type Session, TOWER_LABEL, worldOf } from "./herdr.ts";
+import { type Duty, isCoordinatorDuty, isWorkerDuty } from "./duty.ts";
+import { ARROW, headOf, type HerdrRun, type HerdrWorld, isHead, isSub, KIND_MARK, MARK, parentOf, type Session, TOWER_LABEL, worldOf } from "./herdr.ts";
 import { commanding, type Mark, markOf, type Row, sessionMark, subagents } from "./netdata.ts";
 
 // The tower's monitoring screen: a widget above the editor, never focused, animated only while something is working and the tower's tab is on screen.
@@ -25,8 +26,9 @@ const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", 
 // One glyph and one theme color per state; a working row shows the animated spinner instead of a fixed glyph.
 const GLYPH: Record<Exclude<Mark, "working">, string> = { waiting: "?", idle: "○", done: "✓", error: "✗", unknown: "·", commanding: "◈" };
 const TONE: Record<Mark, Tone> = { working: "accent", waiting: "warning", idle: "dim", done: "success", error: "error", unknown: "muted", commanding: "title" };
-// A row's role mark goes before its name, the same glyph as Herdr's sidebar shows (src/herdr.ts); a tab or sub workspace has none.
+// A row's role mark goes before its name, the same glyph as Herdr's sidebar shows (src/herdr.ts); a tab or sub workspace has none. A row with a kind (`Row.duty`) shows its kind's glyph in place of its role's; the kind column keeps the role's word.
 const ROLE: Record<string, [Tone, string]> = { main: ["main", MARK.main], member: ["member", MARK.member], train: ["member", MARK.train], subagent: ["dim", ARROW], tower: ["tower", TOWER_LABEL], "head tower": ["tower", TOWER_LABEL] };
+const DUTY_TONE: Record<Duty, Tone> = { coordinator: "main", integrator: "main", standing: "main", worker: "dim", scout: "dim", planner: "dim", reviewer: "dim", watchdog: "dim" };
 const MAX_ROWS = 18;
 const MAX_WIDTH = 76;
 
@@ -41,8 +43,8 @@ export function render({ title, mark, head, rows, gui, checking }: Snapshot, fra
 	const last = (i: number) => i < 0 || shown.slice(i + 1).find((r) => r.group === shown[i]!.group && r.depth <= shown[i]!.depth)?.depth !== shown[i]!.depth;
 	const ancestor = (i: number, depth: number) => shown.findLastIndex((r, k) => k < i && r.group === shown[i]!.group && r.depth === depth);
 	const prefix = (i: number) => (shown[i]!.group === "net" ? Array.from({ length: shown[i]!.depth }, (_, d) => (last(ancestor(i, d)) ? "   " : "│  ")).join("") + (last(i) ? "└─ " : "├─ ") : "");
-	const role = (kind?: string) => (kind && ROLE[kind] ? `${paint(...ROLE[kind]!)} ` : "");
-	const cells = shown.map((r, i) => paint("border", prefix(i)) + (r.mark === "unknown" && !r.kind ? "" : `${glyph(r.mark)} `) + role(r.kind) + r.text);
+	const role = (kind?: string, duty?: Duty) => (duty && ((kind === "main" && isCoordinatorDuty(duty)) || (kind === "subagent" && isWorkerDuty(duty))) ? `${paint(DUTY_TONE[duty], KIND_MARK[duty])} ` : kind && ROLE[kind] ? `${paint(...ROLE[kind]!)} ` : "");
+	const cells = shown.map((r, i) => paint("border", prefix(i)) + (r.mark === "unknown" && !r.kind ? "" : `${glyph(r.mark)} `) + role(r.kind, r.duty) + r.text);
 	const [w1, w2] = [Math.max(...cells.map(visibleWidth), 0), Math.max(...shown.map((r) => r.kind?.length ?? 0))];
 	const line = (i: number) => `${pad(cells[i]!, w1)}  ${paint("muted", (shown[i]!.kind ?? "").padEnd(w2))}  ${paint("dim", shown[i]!.note ?? "")}`.trimEnd();
 	const section = (group: Row["group"], name: string, empty?: string) => {
@@ -68,9 +70,9 @@ export async function collect({ run, world = worldOf(run), sessions, workspaceId
 	const [live, { panes: ps, workspaces: all }] = await Promise.all([sessions(), world()]);
 	const head = headOf(all);
 	const mine = all.find((w) => w.workspace_id === workspaceId);
-	const sessionRow = (s: Session, role: string, kids: Row[]): Row => {
+	const sessionRow = (s: Session, role: string, kids: Row[], duty?: Duty): Row => {
 		const mark = commanding(sessionMark(s, ps.find((p) => p.pane_id === s.herdrLocation?.paneId)), kids.map((k) => k.mark));
-		return { group: "net", depth: 1, mark, text: s.name ?? s.id, kind: role, note: { working: s.status, waiting: "waiting on a question" }[mark as "working"] };
+		return { group: "net", depth: 1, mark, text: s.name ?? s.id, kind: role, ...(duty ? { duty } : {}), note: { working: s.status, waiting: "waiting on a question" }[mark as "working"] };
 	};
 	const joined = live.filter((s) => s.herdrLocation?.workspace?.id === workspaceId).flatMap((s) => {
 		const pane = ps.find((p) => p.pane_id === s.herdrLocation?.paneId);
@@ -82,7 +84,7 @@ export async function collect({ run, world = worldOf(run), sessions, workspaceId
 		rows.push({ group: "net", depth: 0, mark: "unknown", text: `tab ${group![0]!.tab.label}` });
 		for (const { s, pane, role } of group!.sort((a, b) => Number(b.role === "main") - Number(a.role === "main"))) {
 			const kids = subagents(pane, ps, now);
-			rows.push(sessionRow(s, role, kids), ...kids);
+			rows.push(sessionRow(s, role, kids, role === "main" && isCoordinatorDuty(pane?.tokens?.sb_duty) ? pane!.tokens!.sb_duty : undefined), ...kids);
 		}
 	}
 	// Sub workspaces are linked worktrees: they hang under this tower like subagents, and their sessions never join. One that

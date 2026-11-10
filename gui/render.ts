@@ -5,7 +5,7 @@ import type { HeadUnit } from "../src/nethead.ts";
 import { mountCalm } from "./calm.ts";
 import { menuAround, nameMenu } from "./menu.ts";
 import { replay } from "./dom.ts";
-import { m } from "./sentences.ts"; import { repoint, iconRef } from "./icons.ts"; import { type NounKey, noun } from "./nouns.ts";
+import { m } from "./sentences.ts"; import { repoint, iconRef, ICON, unitIcon } from "./icons.ts"; import { type NounKey, noun } from "./nouns.ts";
 import { closed } from "./scene.ts";
 import { allyMark, mergeAllies, stateName, unitCards, type AllyCard, type UnitCard } from "./linkmodel.ts";
 import { fillAllies } from "./towerallies.ts";
@@ -21,7 +21,7 @@ import { arrange, can, canIn } from "./boxmodel.ts";
 // is touched and CSS transitions play on state changes. Motion is CSS on transform and opacity only. The unit token (plate, icon, ring,
 // badge) and the keyed `sync` are shared with the focus views, so a unit looks and moves the same on every route.
 
-export const ICON: Record<string, string> = { main: "main", member: "member", train: "train", subagent: "subagent", outpost: "outpost", outside: "outside", tower: "tower", ally: "tower", run: "tower" };
+export { ICON, unitIcon }; // icons.ts keeps them: the one chokepoint for a unit's icon
 export const LABEL: Record<Mark, () => string> = { commanding: m.mark_commanding, working: m.mark_working, waiting: m.mark_waiting, idle: m.mark_idle, done: m.mark_done, error: m.mark_error, unknown: m.mark_unknown };
 const ROLE: Record<string, NounKey> = { ally: "role_ally", run: "role_run", main: "role_main", member: "role_member", train: "role_train", subagent: "role_subagent", tower: "role_tower", outpost: "role_outpost", outside: "role_outside", session: "role_session" };
 /** The server's fixed status words; any other note (a subagent's tool or phase) shows as it is. */
@@ -92,10 +92,10 @@ export const hang = (pop: HTMLElement, button: HTMLElement) => {
 };
 /** The round unit token: icon, spinning ring, ping, and state badge. */
 export const PLATE = `<div class="plate"><i class="ring"></i><svg><use data-icon="main"/></svg><b class="badge"></b></div>`;
-/** `docs`: the unit's documents; those on screen in its terminal show as a scroll badge with their count. */
-export function fillPlate(plate: HTMLElement, role: string, m: Mark, docs?: { onScreen: boolean }[]) {
+/** `docs`: the unit's documents; those on screen in its terminal show as a scroll badge with their count. `duty`: the unit's kind, which picks its icon (a unit with none keeps its position's). */
+export function fillPlate(plate: HTMLElement, role: string, m: Mark, docs?: { onScreen: boolean }[], duty?: string) {
 	mark(plate, m);
-	const use = plate.querySelector("use")!, icon = ICON[role] ?? "member", href = iconRef(icon), n = docs?.filter((d) => d.onScreen).length;
+	const use = plate.querySelector("use")!, icon = unitIcon(role, duty), href = iconRef(icon), n = docs?.filter((d) => d.onScreen).length;
 	use.dataset.icon = icon;
 	if (use.getAttribute("href") !== href) use.setAttribute("href", href);
 	if (n) plate.dataset.docs = String(n);
@@ -158,7 +158,7 @@ export function fillUnit(el: HTMLElement, u: Omit<Unit, "id" | "key" | "control"
 	hit.setAttribute("aria-label", `${u.name}: ${doing(note, mk)}`);
 	hit.toggleAttribute("data-alert", urgent(mk));
 	mark(el, mk);
-	fillPlate(el.querySelector(".plate")!, u.role, mk, u.docs);
+	fillPlate(el.querySelector(".plate")!, u.role, mk, u.docs, u.duty);
 	text(el, ".name", u.name);
 	text(el, ".role", roleWord(u.role, u.duty, u.todo?.graph));
 	const line = (u.key && !closed(u) && trainNote.get(u.key)) || undefined, noteEl = el.querySelector<HTMLElement>(".note")!;

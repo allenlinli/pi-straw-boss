@@ -15,6 +15,16 @@ The browser view's icons come from [game-icons.net](https://game-icons.net), lic
 | Comms channel, incoming messages | Walkie Talkie | Delapouite | https://game-icons.net/1x1/delapouite/walkie-talkie.html |
 | Document tile | Scroll Unfurled | Lorc | https://game-icons.net/1x1/lorc/scroll-unfurled.html |
 | Train (a train worker's unit card) | Steam Locomotive | Delapouite | https://game-icons.net/1x1/delapouite/steam-locomotive.html |
+| Coordinator main (kind) | Ship Wheel | Delapouite | https://game-icons.net/1x1/delapouite/ship-wheel.html |
+| Integrator main (kind) | Join | Delapouite | https://game-icons.net/1x1/delapouite/join.html |
+| Standing main (kind) | Lighthouse | Delapouite | https://game-icons.net/1x1/delapouite/lighthouse.html |
+| Worker subagent (kind) | Spanner | Lorc | https://game-icons.net/1x1/lorc/spanner.html |
+| Scout subagent (kind) | Binoculars | Delapouite | https://game-icons.net/1x1/delapouite/binoculars.html |
+| Planner subagent (kind) | Pencil Ruler | Delapouite | https://game-icons.net/1x1/delapouite/pencil-ruler.html |
+| Reviewer subagent (kind) | Magnifying Glass | Lorc | https://game-icons.net/1x1/lorc/magnifying-glass.html |
+| Watchdog subagent (kind) | Hound | Lorc | https://game-icons.net/1x1/lorc/hound.html |
+
+A unit takes its kind's icon (the eight rows above, `#i-<duty>`) where it has one, and its position's icon (main, member, subagent) where it does not (docs/specs/2026-11-09-agent-kinds.md D16).
 
 Changes: the black background square of each SVG was removed and the fill set to `currentColor`, so state colors apply; the paths are inlined as an SVG sprite in `index.html`. The icon set's license text: https://github.com/game-icons/icons/blob/master/license.txt
 
@@ -35,7 +45,7 @@ The Raven Keep view draws its own icons (`gui/themes/raven/sprite.svg`), origina
 | Comms channel | a raven |
 | Document tile | a tome |
 
-The train has no Raven Keep twin: the keep shows Standard's Steam Locomotive for it, as it does for any role its sprite does not draw.
+The train and the eight kinds (coordinator, integrator, standing, worker, scout, planner, reviewer, watchdog) have no Raven Keep twin: the keep shows Standard's icon for them, as it does for any role its sprite does not draw.
 
 The head page's backdrop (`gui/themes/raven/backdrop.webp`) and the raven perched on its gate (`gui/themes/raven/perch.webp`) are raster art made with the same image generator (Codex image generation) for this project, resized and cut; nothing in them is copied.
 

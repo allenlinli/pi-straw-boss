@@ -25,7 +25,7 @@ A main never demotes; when its session ends, the tab has no main until a member 
 
 **Kinds of main.**
 A main runs as a `coordinator` (the default: it plans and dispatches), an `integrator` (a project's [merge trains](/pi-straw-boss/docs/guide/merge-train/)), or `standing` (one system or machine, with no end).
-It sets its kind with `boss_duty`, and the page shows it.
+It sets its kind with `boss_duty`, and the page shows it, as a word beside the name and as the unit's icon.
 
 **When the tower opens.**
 A tower opens in its own tab when agents start to collide: a member dispatches a subagent, an agent promotes itself, a workspace has two members while another workspace already has a tower, or you type `/boss tower`.

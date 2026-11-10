@@ -10,7 +10,7 @@ export function fillToken(el: HTMLElement, u: { key?: string; name: string; role
 	el.toggleAttribute("hidden", false);
 	el.toggleAttribute("data-alert", Boolean(u.key) && urgent(u.mark));
 	mark(el, u.mark);
-	fillPlate(el.querySelector(".plate")!, u.role, u.mark, u.docs);
+	fillPlate(el.querySelector(".plate")!, u.role, u.mark, u.docs, u.duty);
 	text(el, ".name", u.name);
 	text(el, ".role", roleWord(u.role, u.duty, u.todo?.graph));
 	say(el, ".note", u.note, u.mark);

@@ -278,11 +278,15 @@ test("train workers: planning, apps-config, main and the tower prompts say the n
 		const text = read(file);
 		for (const term of ["`role: \"train\"`", "manifest", "`train:` block", "`blocked`"]) assert.ok(text.includes(term), `${file} names ${term}`);
 	}
-	// A car slip reaches the integrator only as a stamped forward, by tower_reply from the run that took the event; tower_send reaches towers only.
+	// A car slip reaches the integrator only as a stamped forward, and since 0.74.0 (todo #151) by one door: boss_open_main with role integrator, in the run that took the slip; the code finds or opens the project's one integrator and forwards.
+	// A run is shown no event id, so the prompt names none (`forward: <event id>` could not be followed).
 	const run = read("tower-run.md");
-	assert.ok(run.includes("Forward the slip with `tower_reply` (`to`: the integrator, `forward: <event id>`"), "tower-run.md forwards with tower_reply to the integrator");
-	assert.ok(run.includes("`tower_send` cannot reach the integrator") && !/tower_send` `forward/.test(run), "tower-run.md does not forward with tower_send");
-	assert.ok(run.includes("and no slip, then forward the slip to it the same way"), "a new integrator is opened without the slip, which is forwarded after");
+	assert.ok(run.includes("Send it there with `boss_open_main` and `role: \"integrator\"`: `project`, the slip as it came as the request, and its sender, in the run that took it"), "tower-run.md sends a slip through the integrator's door");
+	assert.ok(run.includes("opens it as your own main (kind integrator, outside the two opened mains and the sender's one; a project never has two)"), "the integrator is the tower's own main, and a project has one");
+	assert.ok(run.includes("nothing you send yourself reaches the integrator as a slip") && !/`forward: <event id>`|boss_duty/.test(run), "tower-run.md names no event id and leaves the kind to the code");
+	// An ally run has the same door for a slip of a main it opened, and no other way to an integrator.
+	const ally = read("ally-run.md");
+	assert.ok(ally.includes("A car slip from a main you opened") && ally.includes("`role: \"integrator\"`") && ally.includes("A request to open an integrator gets none"), "ally-run.md sends a slip of its main through the door and opens no integrator otherwise");
 	assert.ok(run.includes("answer the integrator with `tower_reply`: the train's session id, or the refusal"), "the integrator hears the train's open");
 	assert.ok(read("tower.md").includes("needs the tower runs (`towerRuns.enabled`)") && !read("tower.md").includes("`forward:"), "the resident tower forwards nothing");
 	assert.ok(read("tower-run.md").includes("once per code") && read("tower-run.md").includes("two opened mains"), "tower-run.md opens one train per code, outside the two");

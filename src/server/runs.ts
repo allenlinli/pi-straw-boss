@@ -1699,6 +1699,16 @@ export function createRuns(o: RunsOptions) {
 			return readQueue(slot, a.rec.workspace).flatMap((e) => (e.kind === "intercom" && e.from && e.taken?.run === a.rec.id ? [{ id: e.id, from: e.from }] : []));
 		},
 		/**
+		 * What local sessions said to the tower that an ally run took (allyroute.ts: the answers of the sessions the device's runs wrote to or opened), oldest first, each with the session the broker named and its own text.
+		 * They stay in the inbox until the run ends well, so the server reads them there and not from what the run says. A message from the device itself is not one.
+		 */
+		allyAnswers(token: unknown): { id: string; from: { id: string; name: string }; text: string }[] {
+			const a = of(token);
+			if (!a || a.ended || a.rec.kind !== "ally") return [];
+			const took = new Set(a.rec.events);
+			return itemsOf(a, true).flatMap((i) => (i.local && took.has(i.id) ? [{ id: i.id, from: i.local, text: i.text }] : []));
+		},
+		/**
 		 * The pi session file the run's pane reports, kept in the record. An ally run's file is kept only when it is named for the pi session the run reports (`<time>_<session id>.jsonl`, as pi names it), so a run cannot
 		 * hand the GUI another session's file; the same-user residual (the run reports both) is in docs/how-it-works.md.
 		 */

@@ -22,21 +22,21 @@ export function boxDemo(net: Net, param: string | null, now = Date.now()) {
 		net.bases.push({
 			id: hex(1), label: "Work", mark: "waiting", tower: null, outposts: [], outside: [], box: box("boxd1", "7c2e90", "agent-tower-01"),
 			tabs: [{ id: hex(11), label: "exports", units: [
-				unit(21, "export-main", "main", "waiting", "waiting on a question", { pending: ask, todo: { done: 1, total: 3, now: "Preparing the nightly export" } }),
+				unit(21, "export-main", "main", "waiting", "waiting on a question", { pending: ask, duty: "integrator", todo: { done: 1, total: 3, now: "Preparing the nightly export" } }),
 				unit(22, "export-checks", "member", "idle"),
 				unit(23, "export-old", "main", "done", "finished", { ended: true, control: false }),
-			] }, { id: hex(12), label: "reports", units: [unit(24, "report-main", "main", "working", "tool:read", { subs: [unit(25, "report-scan", "subagent", "done", "finished", { ended: true })] })] }],
+			] }, { id: hex(12), label: "reports", units: [unit(24, "report-main", "main", "working", "tool:read", { duty: "coordinator", subs: [unit(25, "report-scan", "subagent", "done", "finished", { ended: true })] })] }],
 		});
 		// The box's own ally card (its unit-status, folded under the base while the session is live): a notice of the box and its units' states.
 		net.link ??= { allies: [], alerts: [], confirms: [], units: [] } as never;
 		net.link!.allies.push({ id: "t/boxd1/Work", team: "t", teamName: "moldplan", device: "boxd1", short: "7c2e90", label: "agent-tower-01", online: true, unattended: true, workspace: "Work", tower: "working", tabs: [{ label: "exports", state: "blocked" }, { label: "reports", state: "working" }] } as never);
-		net.link!.units.push({ team: "t", device: "boxd1", at: now - 20_000, units: [{ unit: "Work", state: "working", monitors: ["nightly export"], report: "Nightly export queued.\nWaiting for the window." }] } as never);
+		net.link!.units.push({ team: "t", device: "boxd1", at: now - 20_000, units: [{ unit: "Work", state: "running", monitors: ["nightly export"], report: "Nightly export queued.\nWaiting for the window." }] } as never);
 	}
 	if (want.has("unreachable")) net.bases.push({ ...bare(2, "Build farm", box("boxd2", "3d19ab", "agent-tower-02", { state: "unreachable", seen: now - 4 * 60_000 })), mark: "working", tabs: [{ id: hex(31), label: "ci", units: [unit(41, "ci-main", "main", "waiting", "waiting on a question", { pending: ask }), unit(42, "ci-lint", "member", "idle")] }] });
 	if (want.has("revoked")) net.bases.push(bare(3, "agent-tower-03", box("boxd3", "55f0c2", "agent-tower-03", { state: "ended", why: "policy", can: [], team: "moldplan" })));
 	if (want.has("refused")) net.bases.push(bare(4, "agent-tower-04", box("boxd4", "a8e641", "agent-tower-04", { state: "ended", why: "not-granted", can: [], team: "moldplan" })));
 	const names = ["nightly export", "invoice scan <img src=x onerror=alert(1)>", "schema check", "release notes", "backup verify", "log sweep"];
-	const run = (i: number) => ({ key: hex(0x100 + i), name: names[i % names.length]!, role: i % 3 === 2 ? "ally" : "main", workspace: "Work", first: now - (i + 1) * 3_600_000 - 900_000, last: now - (i + 1) * 3_600_000, size: 2048 + i * 311, ...(i % 2 ? { dispatcher: "ci-box" } : {}) });
+	const run = (i: number) => ({ key: hex(0x100 + i), name: names[i % names.length]!, role: (["main", "run", "ally"] as const)[i % 3]!, workspace: "Work", first: now - (i + 1) * 3_600_000 - 900_000, last: now - (i + 1) * 3_600_000, size: 2048 + i * 311, ...(i % 2 ? { dispatcher: "ci-box" } : {}) });
 	const total = want.has("more") ? 53 : 3;
 	const known = (key: string) => /^x[0-9a-f]{16}$/.test(key) && parseInt(key.slice(1), 16) >= 0x100 && parseInt(key.slice(1), 16) < 0x100 + total;
 	return {

@@ -25,12 +25,13 @@ const sigOf = (b: Base) => {
 const rowEl = () => html(`<li class="box-run"><a class="box-open"><span class="name"></span><em class="role"></em><span class="when"><span class="age"></span><span class="post"></span></span></a></li>`);
 const age = (el: HTMLElement, since: number) => ((el.dataset.since = String(since)), (el.textContent = ago(since)));
 
-function drawRuns(el: HTMLElement, b: Base, r: Runs) {
-	const fold = el.querySelector<HTMLElement>(".box-runs")!, live = b.box?.state === "live";
-	fold.hidden = !live || !r.rows.length;
-	if (fold.hidden) return;
-	text(fold, "summary", m.box_runs({ count: r.rows.length }));
-	sync(fold.querySelector(".box-run-list")!, r.rows.map((row) => ({ ...row, id: row.key })), rowEl, (li, row) => {
+/** The roles of a tower's own runs (src/server/operateroles.ts): an ally run, an event run, and the tower itself. A finished one is the tower's work, not an agent that went away. */
+const TOWER_ROLES: readonly string[] = ["ally", "run", "tower"];
+function drawList(fold: HTMLElement, b: Base, rows: RunRow[], label: (count: number) => string) {
+	fold.hidden = !rows.length;
+	if (!rows.length) return;
+	text(fold, "summary", label(rows.length));
+	sync(fold.querySelector(".box-run-list")!, rows.map((row) => ({ ...row, id: row.key })), rowEl, (li, row) => {
 		const hit = li.querySelector<HTMLElement>("a")!;
 		aim(hit, { view: "session", ws: b.id, key: row.key }); // the existing read-only comms view, as a tower's earlier run opens
 		hit.setAttribute("aria-label", m.box_run_aria({ name: row.name }));
@@ -39,8 +40,16 @@ function drawRuns(el: HTMLElement, b: Base, r: Runs) {
 		age(li.querySelector<HTMLElement>(".age")!, row.last);
 		text(li, ".post", m.link_unit_ago());
 	});
-	const more = fold.querySelector<HTMLButtonElement>(".box-more")!;
-	more.hidden = !r.before;
+}
+/**
+ * Earlier runs, as two folds: the agents' sessions that ended, and the tower's own runs (an ally run a teammate's message drove, an event run), which come every few seconds on a busy box and are not agents that went away
+ * (docs/specs/2026-11-09-agent-kinds.md §12). Both are closed until the boss opens them; Show more pages the one ledger and sits below both.
+ */
+function drawRuns(el: HTMLElement, b: Base, r: Runs) {
+	const live = b.box?.state === "live", mine = live ? r.rows : [], more = el.querySelector<HTMLButtonElement>(".box-more")!;
+	drawList(el.querySelector<HTMLElement>(".box-runs")!, b, mine.filter((row) => !TOWER_ROLES.includes(row.role)), (count) => m.box_runs({ count }));
+	drawList(el.querySelector<HTMLElement>(".box-truns")!, b, mine.filter((row) => TOWER_ROLES.includes(row.role)), (count) => m.box_tower_runs({ count }));
+	more.hidden = !live || !r.before;
 	more.textContent = m.box_runs_more();
 }
 function ask(el: HTMLElement, b: Base, r: Runs, before?: string) {

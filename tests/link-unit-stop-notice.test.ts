@@ -6,7 +6,7 @@ import { runNotice, UnitReporter } from "../src/link/unitstatus.ts";
 import { reaches } from "../src/link/scope.ts";
 import { createRevoker, type OpenedMain } from "../src/server/revoke.ts";
 import type { RunSignal } from "../src/server/runs.ts";
-import { createUnitStop, mainsFor, type MainFact } from "../src/server/unitstop.ts";
+import { createUnitStop, kindOfPane, mainsFor, type MainFact } from "../src/server/unitstop.ts";
 
 // Todo #100 task 3, the notices and the `mains` of docs/specs/2026-11-07-link-remote-stop.md (3.2, 3.4, 4): each outcome of a stop is a notice in the scope {device: row.device, team: row.team}, which reaches the dispatcher and that
 // team's admins and never a third dev; a refusal reaches the requester's scope; and the box tells each controller the mains it may stop.
@@ -60,6 +60,20 @@ test("mains: the dispatcher sees its own mains, an admin sees every main of the 
 	assert.deepEqual(view(facts, FOREIGN, T1), [], "an admin of another team is no admin of this one");
 	const m = view(facts, ADMIN)[0]!;
 	assert.deepEqual(m, { handle: wireId(BOX, "s-1"), unit: "Alpha", name: "tester", state: "idle", by: DISP, stopping: false } satisfies MainStatus);
+});
+
+test("mains: a main's kind from its pane (a coordinator, integrator or standing main, or a train) goes into its entry, and a main whose pane names none has no kind key", () => {
+	assert.equal(kindOfPane({ sb_role: "main", sb_duty: "integrator" }), "integrator");
+	assert.equal(kindOfPane({ sb_role: "main", sb_duty: "coordinator" }), "coordinator");
+	assert.equal(kindOfPane({ sb_role: "main", sb_duty: "standing" }), "standing");
+	assert.equal(kindOfPane({ sb_role: "train", sb_train: "proj/mp-1" }), "train");
+	assert.equal(kindOfPane({ sb_role: "train", sb_duty: "integrator" }), "train", "a train is a train whatever else its pane says");
+	for (const tokens of [undefined, {}, { sb_role: "main" }, { sb_role: "main", sb_duty: "worker" }, { sb_role: "main", sb_duty: "x".repeat(40) }, { sb_role: "member", sb_duty: "integrator" }, { sb_duty: 3 }]) assert.equal(kindOfPane(tokens as never), undefined, JSON.stringify(tokens));
+	const facts = [fact({ main: "s-1" }, "ship", "idle"), fact({ main: "s-2" }, "plain", "idle")];
+	facts[0]!.kind = "integrator";
+	const [ship, plain] = view(facts, ADMIN);
+	assert.equal(ship!.kind, "integrator");
+	assert.equal("kind" in plain!, false);
 });
 
 test("mains: a pending stop shows as stopping; the name is scrubbed and cut to 40; at most 20 are listed; a main of no known state is `unknown`", () => {

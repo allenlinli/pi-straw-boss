@@ -583,7 +583,13 @@ Watch the unit your task names: call `watch_read` with the last `since` and the 
 ### 12. Link and remote devices
 
 - **Paired devices** see everything, as today.
-- **The ally board** carries no role and no kind.
+- **The work board** (the `board` kind that towers read with `board_read`) carries no role and no kind.
+- **The ally card carries the kind (boss decision 11/10, todo #150).** The first version left the kind off everything an ally sees, so a box's mains read as plain mains next to a card that said nothing of the trains and the integrator it runs. A box's `unit-status` now names each main's kind:
+  - **Wire.** An entry of `mains` gains an optional seventh field, `kind`: `coordinator`, `integrator`, or `standing` (the duty the main published as `sb_duty`, as the net's `Unit.duty` reads it), or `train` (a pane whose `sb_role` is `train`). It is at most `LIMITS.mainKind` = 16 bytes (the longest word is 11), cut when it is written and again when it is read. It is left out when the box knows no kind, so an entry with none is the six fields of before. The decoder takes six or seven fields and refuses any other count.
+  - **Caps.** `unit-status.kind` is in `CAPS_FEATURES`. The box writes the field only to a controller whose fresh `caps` list `unit-status.mains` and `unit-status.kind`; to every other it strips `kind` from each entry, since a decoder of before takes exactly six fields and would drop the whole status. An older device therefore reads what it read before.
+  - **Who sees which main does not change.** `mains` is still the mains the controller may stop: its own, or the team's for an admin (the [remote stop spec](2026-11-07-link-remote-stop.md) §3.2). The kind is a word on those rows, not a wider list.
+  - **The page.** `MainCard.kind` keeps the four words and drops any other. The row of the Mains fold draws the word between the name and the state with `roleWord`, as the local page does: the same word in every theme (§11), and `train` through the role noun; a main with no kind draws no word. Icons stay by position (D9).
+  - **A tower's runs are not units.** A box tower wakes a short run for each message (an ally run, an event run). The ally card says a tower unit in the service's `running` or `waking` state is a *run in progress* and, in the tooltip of the state word, that the tower stands by between runs; it does not say *running*, which a plain unit's `working` keeps. On the operate base of the same box the finished runs (the ledger's `ally`, `run`, and `tower` roles) are their own closed fold, *Tower runs*, beside the agents' *Earlier runs*, and never rows among the agents.
 - **Operate controllers.**
   - The kind word and the graph cross in the snapshot (D13, Q2 「可以」): the sanitizer keeps `duty`, event `kind: "duty"`, and `todo.graph` (`src/server/operatesanitize.ts:77`).
   - The reason is not redacted (decision of the sb main owner, AK2-F005). A controller already sees it: it mirrors the main's pane, where pi prints the call's arguments; it reads the history; and, with box scope, it reads the tower runs whose brief carries the digest line.
@@ -602,6 +608,7 @@ Watch the unit your task names: call `watch_read` with the last `since` and the 
 
 1. **Net snapshot.** `Unit.duty`, `TodoSum.graph`, `NetEvent.kind: "duty"`, and `ProjectYard.integrator.switched`. The page, paired devices, Zen, and operate controllers read them.
 2. **Link operate.** The sanitizer's new fields (`duty`, `todo.graph`, the `duty` event).
+2a. **Link wire (todo #150).** The optional seventh field `kind` of a `unit-status` main, `LIMITS.mainKind`, and the `unit-status.kind` feature of `caps` that gates it (§12).
 3. **The bridge's dialogs message.** `TodoSum.graph` from each session's bridge, checked by `todoOk` and copied by the hub's rebuild (`src/dialogs.ts:145`).
 4. **Dispatch.** A coordinator main whose todos name no graph, in its state or in earlier `todo` calls of the same message, is refused a `worker`, an unknown role, or a bare or handoff spawn (§2a). Scouts, planners, and reviewers pass, and in phase 3 the watchdog. Integrators and standing mains always carry `dispatch.md` and are never gated.
 5. **Pane tokens.** `sb_duty`: mains publish it, every other role publishes `null`, and it is cleared at shutdown. The net reads it, and so does `order.ts` for members' sort, which reverses TT-F002 for display. Phase 2 adds `sb_open_duty`.

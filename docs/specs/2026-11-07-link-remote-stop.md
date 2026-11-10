@@ -51,6 +51,7 @@ An ally run's `boss_close_main` has no device check. `allyTool` (`src/server/run
 - `state`: the pane's `agent_status` (`idle`, `working`, `done`, or `unknown`).
 - `by`: the dispatcher's device id.
 - `stopping`: whether a stop is pending.
+- `kind` (optional seventh field, todo #150): the main's kind word, `coordinator`, `integrator`, `standing` or `train`, at most 16 bytes; sent only to a controller whose caps list `unit-status.kind` as well ([agent kinds §12](2026-11-09-agent-kinds.md#12-link-and-remote-devices)). The decoder takes six or seven fields.
 
 **A restart under the same name.** The handle comes from the session id, so a new main with an old name gets a new handle. A stop that names the old handle finds nothing and is refused as `unit-stop-gone`; it never stops the new main. A main Herdr resumes from its session file keeps its session id, so it is the same main, and stopping it is right.
 
@@ -62,6 +63,7 @@ An ally run's `boss_close_main` has no device check. `allyTool` (`src/server/run
 
 - `unit-stop`: the box takes the kind.
 - `unit-status.mains`: the controller takes the second field.
+- `unit-status.kind` (a later build): the controller takes the seventh field of each entry; without it the box strips `kind`, so a controller of before still gets six-field entries.
 
 They are used like this:
 

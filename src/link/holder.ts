@@ -210,7 +210,7 @@ const BOARD_OFFLINE_MS = 2 * 3600_000, BOARD_MAX_AGE_MS = 7 * 24 * 3600_000;
 /** The board is sent at most this often per team, and once an hour unchanged; a relay without the kind is left alone for an hour. */
 const BOARD_MIN_MS = 15_000, BOARD_REFRESH_MS = 3600_000, BOARD_OFF_MS = 3600_000;
 /** What this build takes (docs/specs/2026-10-26-sb-backend.md, Replies for a main). A `caps` older than 2 hours counts as none. */
-export const CAPS_FEATURES = ["tower.awaitsReply", "tower-reply", "unit-stop", "unit-status.mains", "operate/1"] as const;
+export const CAPS_FEATURES = ["tower.awaitsReply", "tower-reply", "unit-stop", "unit-status.mains", "unit-status.kind", "operate/1"] as const;
 export const CAPS_STALE_MS = 2 * 3600_000;
 /** A live frame is worth nothing late: its post gives up after this, so a stalled relay does not hold the serial chain of sends (spec §11.1, task 5). */
 const LIVE_POST_MS = 5000;
@@ -1370,7 +1370,7 @@ export class LinkHolder {
 		if (!key) throw new Error(`This device holds no key for epoch ${state.epoch}`);
 		// `ts` rises by at least 1 per status, so a receiver's per-sender guard never drops one for an equal clock reading.
 		const ts = (run.unitTs = Math.max(this.now(), run.unitTs + 1));
-		await run.client.postEnvelope(run.teamId, buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "unit-status", to: [device], plaintext: encodePlaintext("unit-status", { units, ...(mains !== undefined && this.capsOf(run, device).includes("unit-status.mains") ? { mains } : {}) }) }));
+		await run.client.postEnvelope(run.teamId, buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "unit-status", to: [device], plaintext: encodePlaintext("unit-status", { units, ...(mains !== undefined && this.capsOf(run, device).includes("unit-status.mains") ? { mains: this.capsOf(run, device).includes("unit-status.kind") ? mains : mains.map(({ kind: _kind, ...rest }) => rest) } : {}) }) }));
 	}
 	/**
 	 * An `operate` message to one device of a team, as a live envelope (spec §5.1): not queued, not stored, answered with how many streams took it. Sends are serial per team and `ts` rises by

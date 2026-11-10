@@ -58,9 +58,10 @@ export function allyDemo(link: LinkSummary, name: string | null, now = Date.now(
 	}
 	// The Mains fold of the unit (docs/specs/2026-11-07-link-remote-stop.md §6): `mains` is a dispatcher's own two mains with Stop; `admin` adds teammates' mains, named by their dispatcher; `stopping` has one stop pending; `nostop` is a box whose build takes no stop request (the rows, no buttons).
 	if (scene("mains") || scene("admin") || scene("stopping") || scene("nostop")) {
-		const own = (handle: string, name: string, state: string) => ({ handle, unit: unit.unit, name, state, by: "d-me", stopping: false });
-		const theirs = (handle: string, name: string, state: string, by: string) => ({ handle, unit: unit.unit, name, state, by, stopping: false });
-		d1.mains = [own("0a1b2c3d4e5f6a7b", "docs · ledger fix", "working"), own("1b2c3d4e5f6a7b8c", "docs · release notes", "idle"), ...(scene("admin") ? [theirs("2c3d4e5f6a7b8c9d", "api · retries", "working", "d-mei"), theirs("3d4e5f6a7b8c9d0e", "api · schema", "idle", "d-mei")] : [])];
+		// Each main carries the kind word the box read from its pane (`unit-status.kind`, docs/specs/2026-11-09-agent-kinds.md §12): a coordinator, a standing main, an integrator, and a train; `nostop` is a box of before, which sends none.
+		const own = (handle: string, name: string, state: string, kind?: string) => ({ handle, unit: unit.unit, name, state, by: "d-me", stopping: false, ...(kind && !scene("nostop") ? { kind } : {}) });
+		const theirs = (handle: string, name: string, state: string, by: string, kind?: string) => ({ handle, unit: unit.unit, name, state, by, stopping: false, ...(kind && !scene("nostop") ? { kind } : {}) });
+		d1.mains = [own("0a1b2c3d4e5f6a7b", "docs · ledger fix", "working", "coordinator"), own("1b2c3d4e5f6a7b8c", "docs · release notes", "idle", "standing"), ...(scene("admin") ? [theirs("2c3d4e5f6a7b8c9d", "api · retries", "working", "d-mei", "integrator"), theirs("3d4e5f6a7b8c9d0e", "api · schema", "idle", "d-mei", "train")] : [])];
 		if (scene("stopping")) d1.mains[0]!.stopping = true;
 		d1.dispatchers = { "d-me": { label: "Boss Mac", self: true as const }, "d-mei": { label: "Mei's Mac" } };
 		if (!scene("nostop")) d1.canStop = true;

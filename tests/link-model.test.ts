@@ -151,17 +151,17 @@ const crashNotice = (at: number, over: Record<string, string | number> = {}) => 
 test("a unit's state is said in the three words the card is for (standing by, running, crashed), and a state the page does not know as it is", () => {
 	assert.deepEqual(unitWord("standing"), { tone: "idle", word: m.mark_standing() });
 	assert.deepEqual(unitWord("idle"), { tone: "idle", word: m.mark_standing() });
-	for (const s of ["running", "working", "waking", "commanding"]) assert.deepEqual(unitWord(s), { tone: "working", word: m.link_unit_running() }, s);
+	for (const s of ["working", "commanding"]) assert.deepEqual(unitWord(s), { tone: "working", word: m.link_unit_running() }, s);
 	assert.deepEqual(unitWord("blocked"), { tone: "waiting", word: m.mark_waiting() });
 	assert.deepEqual(unitWord("held"), { tone: "crashed", word: m.link_unit_held() }, "held is paused after repeated crashes: trouble, in its own words");
 	assert.deepEqual(unitWord("closing"), { tone: "other", word: m.tower_state_closing() });
-	assert.deepEqual(unitWord("waking"), { tone: "working", word: m.link_unit_running() });
+	assert.deepEqual(unitWord("waking"), { tone: "working", word: m.link_unit_run() });
 	assert.deepEqual(unitWord("reticulating"), { tone: "other", word: "reticulating" }, "a state the page does not know is shown as it is");
 });
 
 test("a unit's card carries its word, when it was heard, its monitors and its report; a stale device's units say so", () => {
 	const [u] = unitCards(status("running"), [], ME, 6_000);
-	assert.deepEqual([u!.unit, u!.tone, u!.word, u!.at, u!.stale, u!.monitors, u!.report, u!.crash], ["moldplan", "working", m.link_unit_running(), 5_000, false, ["tail -f a.log", "npm run watch"], "# Done\nShipped.", undefined]);
+	assert.deepEqual([u!.unit, u!.tone, u!.word, u!.at, u!.stale, u!.monitors, u!.report, u!.crash], ["moldplan", "working", m.link_unit_run(), 5_000, false, ["tail -f a.log", "npm run watch"], "# Done\nShipped.", undefined]);
 	assert.equal(unitCards(status("running", { stale: true }), [], ME, 6_000)[0]!.stale, true);
 	assert.deepEqual(unitCards(undefined, [], ME, 0), []);
 	assert.deepEqual(unitCards(status("running"), [], { ...ME, device: "d2" }, 0), [], "another device's units are not this card's");
@@ -380,6 +380,19 @@ test("a unit's card lists the mains the box named for that unit: name, state in 
 	], "the main of another unit is not this card's");
 	assert.deepEqual([u!.team, u!.device], ["t", "d1"], "the page posts the stop to the box of this row, in this row's team");
 	assert.equal(unitCards(status("running"), [], ME, 6_000)[0]!.mains.length, 0, "a status with no mains has none");
+});
+
+test("a box's main carries its kind to the card only when the box named one (a coordinator, an integrator, a standing main or a train); any other word, or none, leaves the card as it was", () => {
+	const kinds = [{ ...MAIN, kind: "integrator" }, { ...MAIN, handle: "fedcba9876543210", name: "api", kind: "train" }, { ...MAIN, handle: "2222222222222222", name: "tool", kind: "watchdog-9" }, { ...MAIN, handle: "3333333333333333", name: "plain" }];
+	const [u] = unitCards(mainsRow({}, kinds), [], ME, 6_000);
+	assert.deepEqual(u!.mains.map((x) => [x.name, x.kind]), [["docs", "integrator"], ["api", "train"], ["tool", undefined], ["plain", undefined]]);
+	assert.ok(u!.mains.every((x) => !("kind" in x) || x.kind !== undefined), "no key with an undefined value");
+});
+
+test("a unit the tower service runs reads as the tower's run: running and waking say a run is in progress, standing by says nothing is, and the other unit marks keep their words", () => {
+	for (const s of ["running", "waking"]) assert.deepEqual(unitWord(s), { tone: "working", word: m.link_unit_run() }, s);
+	for (const s of ["working", "commanding"]) assert.deepEqual(unitWord(s), { tone: "working", word: m.link_unit_running() }, s);
+	assert.notEqual(m.link_unit_run(), m.link_unit_running());
 });
 
 test("a main whose stop is pending reads 'stopping…' with no button; a box that lists no unit-stop shows its mains with no button; a dispatcher the page cannot name shows its short id", () => {

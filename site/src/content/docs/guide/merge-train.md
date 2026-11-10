@@ -22,6 +22,9 @@ An app without the `integration` field keeps the old flow.
 
 The sb server sends the coordinator a notice for each state of its car: received, returned, dropped, or landed.
 
+The integrator is the tower's own main: it is not one of the two mains a tower opens for requests, and a project has one on the whole computer.
+On a shared box, a main opened for a teammate's device sends its car slip the same way, so the teammate asks for no integrator.
+
 ## What you set
 
 - **`apps.json`**: a top-level `integration` (`skill`, `maxCars` 4, `maxWaitMin` 60, `maxTrains` 3) and a per-app `integration` (`base`, `skill`, `stages`, `accept`, `targets`). [`prompts/apps-config.md`](https://github.com/wayne930242/pi-straw-boss/blob/main/prompts/apps-config.md) describes every field.

@@ -22,6 +22,9 @@ app 列出部署階段時，火車會接著部署。
 
 sb server 會為車廂的每個狀態發通知給協調者：已收到、已退回、已放棄或已落地。
 
+整合者是塔台自己的主智慧體：不算在塔台為請求開的兩個主智慧體裡，一個專案在整台電腦上只有一個。
+在共用的機器上，為隊友的裝置開的主智慧體用同樣的方式送出車廂單，所以隊友不必要求開整合者。
+
 ## 你要設定什麼
 
 - **`apps.json`**：頂層的 `integration`（`skill`、`maxCars` 4、`maxWaitMin` 60、`maxTrains` 3），以及每個 app 的 `integration`（`base`、`skill`、`stages`、`accept`、`targets`）。[`prompts/apps-config.md`](https://github.com/wayne930242/pi-straw-boss/blob/main/prompts/apps-config.md) 說明每個欄位。

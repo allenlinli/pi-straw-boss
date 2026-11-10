@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createHeadlessKit, type HeadlessKit, type Incoming, type IntercomLike } from "./kit.ts";
@@ -1125,6 +1126,15 @@ export function createTowers(o: TowersOptions): Towers {
 				const blocked = readQueue(slot, ws).some((e) => e.taken?.run === who.id && e.kind === "intercom" && e.from?.id === to && ((f) => f?.kind === "call_tower" && f.why === "blocked")(fieldsOf(e.text)));
 				if (blocked) o.auto.decided({ run: who.id.slice(0, 8), to, gist, basis: basisOf(basis, readMemory(slot, ws, now()).memory, runs.bossEvents(request.token)) });
 			},
+			// The `call_tower` messages (why=shared) this run took, as the door of an integrator's open reads them (runtools.ts): a local run's queue events, and for an ally run what the sessions its device's runs opened or wrote to
+			// said to the tower. The sender is the broker's, the text the sender's own; an ally answer has no event id, so its forward is named by a digest of the answer's id.
+			slipEvents: () => {
+				const shared = (text: string) => ((f) => f?.kind === "call_tower" && f.why === "shared")(fieldsOf(text));
+				if (peer) return runs.allyAnswers(request.token).filter((x) => shared(x.text)).map((x) => ({ fwd: createHash("sha256").update(x.id).digest("hex").slice(0, 16), from: x.from, text: x.text }));
+				return readQueue(slot, ws).flatMap((e) => (e.taken?.run === who.id && e.kind === "intercom" && e.from && shared(e.text) ? [{ fwd: e.id, from: e.from, text: e.text }] : []));
+			},
+			// An integrator is the tower's own main whichever run's slip opened it: one opener (and so one queue) for both kinds of run, and no ally route, so its reports reach the local runs.
+			...(l.open ? { openIntegrator: l.open } : {}),
 			noteForward: (f: { fwd: string; from: string; to: string[]; text: string }) => { try { o.cars?.noteForward(f); } catch (cause) { error("cars", (cause as Error).message); } },
 			headAsked: (id: string) => asked(slot, now(), ws, id), openedFor: (session: string) => openedFor(slot, ws, session, now()),
 			...(who.team && o.ally?.project(who.team) ? { project: o.ally.project(who.team)! } : {}),

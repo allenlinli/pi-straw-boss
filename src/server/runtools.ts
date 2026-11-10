@@ -1,6 +1,9 @@
 import { readBoard } from "../boardread.ts";
 import type { Control } from "../closemain.ts";
+import { INTEGRATOR } from "../integrator.ts";
 import type { Opened, OpenRequest, PeerSender } from "../opener.ts";
+import { bodyOf } from "../header.ts";
+import { headsIn, slipsInText } from "../train/cars.ts";
 import { remoteTowers } from "../link/remotelist.ts";
 import type { AllyBoard, AllyTeam } from "../link/holder.ts";
 import { clean } from "../board.ts";
@@ -18,6 +21,7 @@ import { ASK_KEEP_MS, type AskEntry } from "./asks.ts";
 // An ally run (B6) is a peer's message at a trust level: it gets `boss_status`, `tower_list` and `board_read` scoped to its sender's team, `tower_send` to its sender, and, past the gate, `tower_reply`, `boss_open_main`
 // and `boss_close_main`. At `reply` and `forward` the server takes a gated call only against the Allow the dialog hub saw the gate close with (allows.ts), tied to the run's pane, the call id, and the
 // arguments' digest, and only once; at `dispatch` the gate is off, as in a remote turn. `boss_server`, `call_tower`, and `link_request` are refused by the run's kind at every level.
+// A project's integrator has one door, for either kind of run (`openIntegrator` below): a car slip the run took as a `call_tower` (why=shared), which the server finds itself and forwards as it came.
 // (`tower_done` is the `run-done` request.)
 
 export interface ToolResult { text: string; details?: unknown }
@@ -67,6 +71,13 @@ export interface ToolHost {
 	headAsked?(id: string): boolean;
 	/** The `call_tower` event (why=shared) this run took, by its id: the code stamps its sender into a forwarded car slip (docs/specs/2026-11-07-train-workers.md §5.5). Undefined when the run took no such event. */
 	forwardEvent?(id: string): { id: string; from: string } | undefined;
+	/**
+	 * The `call_tower` messages (why=shared) this run took, oldest first, each with the sender the broker named, its own text, and the 16-hex id its forward is stamped with: a local run's events, and for an ally run
+	 * what local sessions said to the tower for its device (allyroute.ts). The door of an integrator's open.
+	 */
+	slipEvents?(): SlipEvent[];
+	/** The tower's opener for an integrator (opener.ts, `role: "integrator"`): the same one for a local and an ally run, and it leaves no ally route, since the integrator is the tower's own main. */
+	openIntegrator?(request: OpenRequest): Promise<Opened>;
 	/** What the server keeps of a forward it stamped, for the car book to check a slip's coordinator against. */
 	noteForward?(f: { fwd: string; from: string; to: string[]; text: string }): void;
 	/** Auto mode (§6): a reply to a session whose blocked `call_tower` this run took is noted with its gist and the `basis` the run named; the server checks the basis and records `none` for a missing or wrong one. */
@@ -75,6 +86,8 @@ export interface ToolHost {
 	memory(args: Record<string, unknown>): Promise<ToolResult>;
 	now(): number;
 }
+
+export interface SlipEvent { fwd: string; from: { id: string; name?: string }; text: string }
 
 /** The refusal of an ally `tower_reply` target held for another device; it does not repeat what the run named. A target that does not exist, or is ambiguous, is not refused here: it goes on to the gate like one that exists, so a run below `dispatch` is told the same of both and learns nothing about what sessions exist (RR3-F002). */
 const NO_TARGET = "tower_reply has no such target: no session of this computer that an ally run may write to has that name or id";
@@ -173,9 +186,13 @@ async function allyTool(host: ToolHost, name: string, args: Record<string, unkno
 	}
 	// A main opened for a `link:` sender reports for the device the run serves, and for no other: another device's id is refused here rather than looked up among the sessions of this computer.
 	if (name === "boss_open_main") {
-		if (args.role !== undefined) throw new Error("An ally run opens no train: a train is opened by the tower of this computer on an integrator's manifest");
-		const sender = str(args, "sender", 300);
-		if (sender.startsWith("link:") && !peerSender(who, sender)) throw new Error("An ally run opens a main for its own sender only: that device is not the sender of this run");
+		// The one door to an integrator: a car slip a main opened for this run's device sent the tower. It is looked up here as well, before the gate, so a call with no such slip spends no Allow and asks the boss nothing.
+		if (args.role === INTEGRATOR) await slipOf(host, args, true);
+		else if (args.role !== undefined) throw new Error("An ally run opens no train: a train is opened by the tower of this computer on an integrator's manifest");
+		else {
+			const sender = str(args, "sender", 300);
+			if (sender.startsWith("link:") && !peerSender(who, sender)) throw new Error("An ally run opens a main for its own sender only: that device is not the sender of this run");
+		}
 	}
 	if (name === "tower_reply") {
 		const to = str(args, "to", 200);
@@ -220,6 +237,50 @@ async function scopedBoards(host: ToolHost, args: Record<string, unknown>): Prom
 		},
 	};
 	return json(await readBoard({ dir: host.boardDir, now: host.now(), net: await host.reach.read(), link, scope, ...(device !== undefined ? { device } : {}) }));
+}
+
+// --- the integrator's door ----------------------------------------------------------------------------------------------------------------------------------------------------
+
+const projectOf = (args: Record<string, unknown>) => {
+	if (typeof args.project !== "string" || !args.project) throw new Error("An integrator is opened for a project: give project, the name its integrator carries (integ <project>)");
+	return args.project.slice(0, 200);
+};
+
+/**
+ * The car slip an integrator's open is for: the newest `call_tower` (why=shared) this run took from the session `sender` names whose text carries every `head:` of the request. The run names the slip by its sender and its
+ * heads, which it can read; the event, its sender, and the text that is forwarded are the server's (a tower run is shown no event id). An ally run's slip comes from a main opened for its own device and from no other
+ * session: the route table says so, and the main's pane token, when it names a device, must agree (as for `boss_close_main`).
+ */
+async function slipOf(host: ToolHost, args: Record<string, unknown>, ally: boolean): Promise<{ project: string; event: SlipEvent }> {
+	const project = projectOf(args), sender = str(args, "sender", 300), heads = headsIn(str(args, "request"));
+	if (!heads.length) throw new Error("An integrator is opened on a car slip: pass the slip as it came as the request (its head: line names the car)");
+	const none = new Error(`No car slip with head ${heads[0]!.slice(0, 12)} from ${clean(sender, 40)} is among the call_tower messages (why=shared) this run took${ally ? " from a main opened for its sender" : ""}: an integrator is opened on such a slip, and on no other request`);
+	const event = [...(host.slipEvents?.() ?? [])].reverse().find((e) => (e.from.id === sender || e.from.name === sender) && heads.every((h) => headsIn(e.text).includes(h)) && slipsInText(bodyOf(e.text)).length > 0);
+	if (!event) throw none;
+	if (ally) {
+		const net = await host.reach.read(), token = net.ps.find((p) => p.pane_id === net.sessions.find((s) => s.id === event.from.id)?.herdrLocation?.paneId)?.tokens?.sb_opened_by;
+		const byToken = typeof token === "string" && token.startsWith("link:") ? token.replace(/^(link:)+/, "") : undefined;
+		if (!host.who.device || host.openedFor?.(event.from.id) !== host.who.device || (byToken !== undefined && byToken !== host.who.device)) throw none;
+	}
+	return { project, event };
+}
+
+/**
+ * `boss_open_main` with `role: "integrator"`: the project's one integrator is found or opened as the tower's own main (opener.ts), and the slip is forwarded to it as its sender wrote it, under the stamp a forward carries
+ * (`fwd`, `fwd-from`), so the car book and the integrator's guard know its coordinator. Nothing of the forwarded text is the run's: a run that a peer's words reach cannot change a slip's `auth`.
+ */
+async function openIntegrator(host: ToolHost, args: Record<string, unknown>, ally: boolean): Promise<ToolResult> {
+	const { project, event } = await slipOf(host, args, ally);
+	if (!host.openIntegrator) throw new Error("This tower opens no integrator");
+	const body = bodyOf(event.text), stamped = { fwd: event.fwd, fwdFrom: event.from.id };
+	const opened = await host.openIntegrator({ request: body, sender: event.from.id, role: INTEGRATOR, project });
+	// The route table is the second witness that the main found is no device's (the first is its pane token, integrator.ts): a peer's main takes no project's slips, whatever name and kind it carries.
+	if (host.openedFor?.(opened.main) !== undefined) throw new Error(`The main that answers as the integrator of project ${project} (session ${opened.main}) was opened for a teammate's device, so no slip goes to it; a project's integrator is this computer's own. The boss closes it or renames it.`);
+	const result = await host.reach.post(opened.main, body, "tower_reply", "session", false, ally && host.who.device ? `remote:${host.who.device}` : undefined, undefined, stamped);
+	if (result.status !== "sent") throw new Error(`The integrator of project ${opened.integrator ?? project} (session ${opened.main}) ${opened.repeated ? "runs" : "was opened"} but did not take the slip: ${result.status} ${result.code ?? ""} ${result.detail ?? ""}`.trim());
+	host.noteForward?.({ fwd: stamped.fwd, from: stamped.fwdFrom, to: [opened.main], text: body });
+	const text = `${opened.repeated ? `The integrator of project ${project} already runs (session ${opened.main}); nothing opened.` : `Opened tab ${opened.tab} with the integrator of project ${project} (session ${opened.main}), this tower's own main.`} The slip of ${clean(event.from.name ?? event.from.id, 40)} was forwarded to it as it came, stamped with its sender. The sb server tells the sender what becomes of the car; relay nothing back.`;
+	return { text, details: { ...opened, fwd: stamped.fwd } };
 }
 
 // --- Straw Link sends --------------------------------------------------------------------------------------------------------------------------------------------
@@ -314,6 +375,7 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			return { text: `Sent to ${shown}.`, details: { to: target.id, status: result.status } };
 		}
 		case "boss_open_main": {
+			if (args.role === INTEGRATOR) return openIntegrator(host, args, ally);
 			const sender = str(args, "sender", 300), peer = ally ? peerSender(host.who, sender) : undefined;
 			const opened = await host.open({ request: str(args, "request"), sender: peer?.id ?? sender, ...(peer ? { peer } : {}), ...(opt(args, "label") ? { label: opt(args, "label")! } : {}), ...(opt(args, "role") ? { role: opt(args, "role")! } : {}) });
 			if (opened.train) return { text: opened.repeated ? `A train was already opened for this request (tab ${opened.tab}); nothing new opened.` : `Opened tab ${opened.tab} with ${trainLabel(opened.train.code)} (session ${opened.main}) and handed it the manifest. It reports to you; close it with boss_close_main after its milestone report.`, details: opened };

@@ -61,6 +61,18 @@ export function readAppIntegration(dir: string, app: string): AppIntegration {
 	return refusals.length || !accept.ok ? { ok: false, refusal: `sb: ${refusals.join("; ")}` } : { ok: true, accept: accept.accept };
 }
 
+/** The refusal of a car slip's apps for the merge train: an `apps.json` that is not there or cannot be read, an app it does not name, and an app with no `integration` (it keeps today's flow, and takes no integrator). Fails closed. */
+export function noTrainRefusal(dir: string, apps: readonly string[]): string | undefined {
+	const read = readApps(dir);
+	if (!read.ok) return `sb: ${read.refusal.replace(/, so integration\.accept of the app is unknown$/, "")}, so no app here takes the merge train`;
+	for (const app of apps) {
+		const entry = read.apps.find((a) => a.name === app);
+		if (!entry) return `sb: ${read.file} has no app named ${app}, so its car takes no train`;
+		if (!isObject(entry.integration)) return `sb: ${read.file}: app ${app} has no integration, so it takes no train`;
+	}
+	return undefined;
+}
+
 /**
  * The refusal of a train open (§14.2): the `stages` or `accept` of the manifest's app, or of every app with an `integration` when the manifest names none. A file that is not there refuses nothing here (the open reads `maxTrains` the same way, and
  * the guard of the integrator refuses a car whose app it cannot read); one that exists and cannot be read or parsed refuses.

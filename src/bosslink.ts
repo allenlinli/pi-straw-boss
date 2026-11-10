@@ -90,7 +90,7 @@ export function parseLinkMore(rest: string | undefined): LinkMore | "usage" | un
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isText = (v: unknown): v is string => typeof v === "string";
 interface Question { question: string; multiple: boolean; options: string[] }
-type Dlg = { kind: "select"; title: string; choices: string[]; cancel: boolean } | { kind: "questions"; qs: Question[]; cancel: boolean };
+export type Dlg = { kind: "select"; title: string; choices: string[]; cancel: boolean } | { kind: "questions"; qs: Question[]; cancel: boolean };
 /** A forwarded dialog as the page's panel takes it (a select with labelled choices, or questions with titled options), or undefined when the sender's JSON is neither: another computer wrote it, so its shape is checked. */
 function readDialog(json: unknown): Dlg | undefined {
 	let d: unknown;
@@ -488,6 +488,8 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 	}
 
 	return {
+		/** The answer the boss gave to a dialog, as the holder takes it (`/boss answer` builds its answers the same way). */
+		build,
 		/** Whether `rest` (after `/boss link`) is one of these subcommands, malformed or not. */
 		handles: (rest: string | undefined) => parseLinkMore(rest) !== undefined,
 		async run(rest: string, cwd: string) {

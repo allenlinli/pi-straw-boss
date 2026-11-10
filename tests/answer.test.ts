@@ -4,6 +4,8 @@ import { get, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, mock, test } from "node:test";
+import { createBossAnswer } from "../src/bossanswer.ts";
+import { postServer } from "../src/handover.ts";
 import type { Net, Unit } from "../src/net.ts";
 import { guiNamespace } from "../src/bridge.ts";
 import { type Answerable, secretDigest, selectDigest } from "../src/owners.ts";
@@ -110,6 +112,28 @@ test("a robot_hand selector in another session is answered from the page, once, 
 	assert.deepEqual(await post(url, csrf, "sessions/B/answer", body), { status: 200, body: { outcome: "accepted", then: { pane: null } } }, "the same answer again replays");
 	assert.deepEqual(hand.got, [[0]], "applied once");
 	assert.deepEqual(await post(url, csrf, "sessions/B/answer", { ...body, answerId: "b".repeat(20) }), { status: 200, body: { outcome: "stale", by: "remote" } }, "another answer later hears it is closed");
+	hand.off();
+});
+
+test("/boss answer reads the page's own stream and answers through the page's own route, once, end to end", async () => {
+	const { b, hosted } = await setup();
+	const hand = selector(b), told: { text: string; level?: string }[] = [], asked: string[] = [];
+	const answer = createBossAnswer({ s: { ui: {} }, tell: (text: string, level?: string) => void told.push({ text, level }), me: () => "A" } as never, {
+		record: async () => hosted.gui(), post: postServer, why: (r) => String(r.body.reason ?? r.status), lang: () => "en",
+		confirm: async (_title, body) => (asked.push(body), true), build: async (_d, text) => ({ answer: { choice: Number(text) - 1 }, said: text }),
+	});
+	await until(async () => unitB(await snapshot(hosted.url))?.pending?.answer, "B's dialog in the snapshot");
+	await answer("", false, "");
+	assert.match(told.at(-1)!.text, /\[B\]\n    Robot Hand — List it[\s\S]*\n      1\. Run it in a new Herdr pane\n      2\. Copy it\n      3\. No, thanks/);
+	await answer("B", false, "1");
+	assert.match(told.at(-1)!.text, /^Answered .* It goes on in that session's terminal\.$/);
+	assert.equal(told.at(-1)!.level, undefined);
+	assert.equal(asked.length, 1);
+	assert.deepEqual(hand.got, [[0]], "the owner applied the choice once");
+	await until(async () => !unitB(await snapshot(hosted.url))?.pending, "B's dialog gone from the snapshot");
+	await answer("B", false, "1");
+	assert.match(told.at(-1)!.text, /No other session waits on a dialog under "B"/);
+	assert.deepEqual(hand.got, [[0]], "nothing was sent again");
 	hand.off();
 });
 

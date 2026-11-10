@@ -242,14 +242,14 @@ test("collect shows this tower's net in detail (joined sessions by tab, subagent
 	assert.deepEqual([snap.title, snap.mark, snap.head], ["Alpha", "waiting", false], "no workspace tower is the head tower; the title shows the most urgent state: a subagent waits on a question");
 	assert.deepEqual(norm(snap.rows.map(({ workspace: _w, id: _i, file: _f, pane: _p, ...r }) => r)), norm([
 		net(0, "unknown", "tab work"),
-		net(1, "working", "Main One", "main", "tool:edit"),
+		{ ...net(1, "working", "Main One", "main", "tool:edit"), duty: "coordinator" },
 		net(2, "waiting", "asker", "subagent", "waiting on a question"),
 		net(2, "working", "builder", "subagent", "bash"),
 		{ ...net(2, "done", "reviewer", "subagent", "finished"), ended: true }, // its pane is gone
 		net(1, "idle", "Member", "member"),
 		net(1, "idle", "Late member", "member"),
 		net(0, "unknown", "tab docs"),
-		net(1, "idle", "Docs", "main"),
+		{ ...net(1, "idle", "Docs", "main"), duty: "coordinator" },
 		row("towers", 0, "idle", "Beta", "tower"),
 	]));
 });

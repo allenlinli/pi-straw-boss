@@ -23,7 +23,7 @@ This spec adds a second axis on top of the position: the **kind**. A coordinator
 
 ## Boss decisions (2026-11-09)
 
-D1 to D5 are the boss's form answers to the proposal, with the option labels quoted verbatim. D6 to D9 were added in chat. D10 to D13 answer the round-5 questions (`decide.md`). D14 and D15 came after round 6.
+D1 to D5 are the boss's form answers to the proposal, with the option labels quoted verbatim. D6 to D9 were added in chat. D10 to D13 answer the round-5 questions (`decide.md`). D14 and D15 came after round 6, and D16 after the ally view (todo #152).
 
 | # | Question | Decision (verbatim) |
 |---|---|---|
@@ -35,24 +35,26 @@ D1 to D5 are the boss's form answers to the proposal, with the option labels quo
 | D6 | What a kind is | 「不同種類的 worker agent 的意涵在於送入的 prompt 不同，他們有不同的預設行為以及和 user 的互動方式」 |
 | D7 | Kind prompts | 「請確認這個 prompt 一律遵循精簡原則」 |
 | D8 | Context and tools per kind | 「像是 watchdog 一般會需要監控的是其他 herdr state，所以可以先把相關脈絡給他。用類似的技巧減少token的使用，甚至可以給他們比較少的工具（除了 worker，worker 需要全套工具），然後審核者或視覺審查會需要 playwriter or agent browser and computer use 等，也會需要用 show me html 給我看成果等等」 |
-| D9 | Kind words and themes (asked whether icons change by kind; they stay by position) | 「那石像鬼就不可能是職稱，這樣的話乾脆統一用程式用字而非主題用字」 |
+| D9 | Kind words and themes (asked whether icons change by kind; they stayed by position until D16) | 「那石像鬼就不可能是職稱，這樣的話乾脆統一用程式用字而非主題用字」 |
 | D10 | Q1, coordinator words | 「鏈主和調度不太行，應該都是協調者，但是要看拓樸形狀…其實應該都是協調者，只是挑選的圖不同，或許不應該當成種類，而是應該當成不同拓樸圖的協調者」; follow-up: 「整合員、值守仍是獨立種類」 |
 | D11 | Q5, where the role prompts live | 「不用複寫吧？我就是在規劃 straw boss 的架構。」; choice: 「sb 出貨完整角色包，移除覆寫」 |
 | D12 | Q3, a standing main and the boss | 「這個要落實，會需要進入自動模式的時候，讓 robot hand, secret drop 等等可能導致 agent waiting 的行為直接被擋掉。可能可以讓主塔台宣告進入 auto mode，那所有的 agent 的 waiting 都會被監控取消並且說明阻擋原因」 |
 | D13 | Q1 worker words, Q2, Q4, Q6, Q7 | Q1: the recommended worker words; Q2 「可以」; Q4 「要先宣告」; Q6 all three accepted; Q7 「接受」 |
 | D14 | The main's prompt and the plan | 「main 的提示詞要改，要確定 plan 才會拿到派供相關提示詞」 |
 | D15 | Q8 graph words; Q9 `/plan` | Q8 「單一迴圈／分支匯流／多工編排」 (en single loop / fan-out / orchestrated); Q9 「讓它們消失」 |
+| D16 | Icons by kind (reverses D9's "icons stay by position") | 「不同類型的 worker agent 等，gui 和 herdr plugin icon 上，都要有所區分」 (11/11, todo #152) |
 
 What the decisions require of the design:
 
 - **D6: a kind is the prompt a session runs.** The prompt fixes the kind's default behaviour and how it deals with the user. A coordinator's switch swaps the addendum its main runs. The page's kind label is derived from that prompt and never stored apart from it.
 - **D7: concise kind prompts.** A kind prompt says only what differs from its base (`main.md`, or the role's base). It repeats no rule, carries no reasoning the agent does not need in order to act, and states the behaviour directly. It follows solid-loop's instruction rules and agent-terse.
 - **D8: per kind, three things.** Preloaded context (so the kind does not spend tokens finding it), a tool set (`worker` full, every other worker kind reduced), and how it presents to the boss (reviewers by `show_doc` HTML pages; visual reviewers with Playwriter, agent-browser and computer-use). All three are in §9.
-- **D9: one plain word per kind.** Each kind has one word in the base messages (zh-TW and en), the same in Standard, Raven and Geek. The Raven names, 車伕/Coachman included, are withdrawn. Icons stay by position (§11).
+- **D9: one plain word per kind.** Each kind has one word in the base messages (zh-TW and en), the same in Standard, Raven and Geek. The Raven names, 車伕/Coachman included, are withdrawn. Icons stayed by position here; D16 reverses that (§11).
 - **D10: three coordinator kinds.** `coordinator` (協調者), `integrator` (整合員), `standing` (值守). Chain and fan-out are not kinds but graphs of a coordinator's plan. The page reads the graph from the main's own todos and shows it beside the kind word (§2). It changes when the plan changes, with no tool call.
 - **D11: sb ships the role pack.** sb's `roles/` holds every pi-herdr-agents role the kinds need, with its prompt, tools, and interaction. It replaces pi-herdr-roles and the weihung-basic-agent overrides (§9, phase 2).
 - **D12: a standing main asks only through the tower's wait card.** Auto mode, which blocks and cancels every wait, is its own spec (todo #140). Under auto mode a standing main must not wait at all (§9).
 - **D14: dispatch rules come with the plan.** `main.md` keeps what every main needs. The dispatch rules move to addenda that sb appends only once the main's own todos name a graph, read as in D10 (§2a). Until then the main carries its work itself.
+- **D16: icons by kind.** Each kind has an icon of its own on the page and a glyph of its own in Herdr's sidebar and the tower's dashboard (§11). The tower and the head keep theirs; a unit with no known kind keeps its position's icon. It replaces D9's last sentence.
 - **D15.** The graph words are final. `/plan` and the `plan` skill leave with pi-herdr-roles.
 - **D13.** Operate controllers see the kind word and the graph (§12). A `train` todo needs the integrator kind (§4). The tool sets in §9 stand. The watchdog sees only what the net shows (§10).
 
@@ -568,7 +570,8 @@ Watch the unit your task names: call `watch_read` with the last `since` and the 
   - The base messages gain `kind_coordinator`, `kind_integrator`, `kind_standing`, `kind_worker`, `kind_scout`, `kind_planner`, `kind_reviewer`, and `kind_watchdog`, and the graph words `graph_single`, `graph_fan`, and `graph_orch`, with the words in [Names](#names).
   - They are not in `NOUN_KEYS`, so every theme shows the same word.
   - Geek shows it as plain text in the role slot. A bracket there would read as a second state tag.
-  - Icons stay with `fillPlate(role)`.
+  - **Icons by kind (D16, todo #152).** `unitIcon(role, duty)` (`gui/icons.ts`) names a unit's icon: its kind's (`#i-<duty>`, one symbol per kind in Standard's sprite, the same game-icons.net source and credit), else its position's. A train keeps the locomotive; the tower and the head keep theirs. `fillPlate(plate, role, mark, docs, duty)` passes the duty at every site that draws a unit's plate: the map's cards and tokens, the drawer's rows, the dossier, an alert's face, and the chat avatar; the ally card's row of a main draws it from the box's `kind`. A launched subagent's kind is `Unit.duty`, read from the agent role its launch script names (`PI_SUBAGENT_AGENT`, through `dutyOfAgent`); a subagent with none, or a role `dutyOfAgent` does not know, keeps the subagent icon. Raven Keep has no twin for the kinds and draws Standard's (`iconRef`'s fallback), as for the train.
+  - **Sidebar and dashboard.** `KIND_MARK` (`src/herdr.ts`) gives a kind its Nerd Font glyph (names from Nerd Fonts 3.5.1's glyphnames.json): coordinator md-ship_wheel U+F0833, integrator fa-code_fork U+F126, standing md-lighthouse U+F09FF, train fa-train U+F238, worker md-wrench U+F05B7, scout md-binoculars U+F00A5, planner md-pencil_ruler U+F1353, reviewer md-magnify U+F0349, watchdog md-dog U+F0A43. A main's `sb_mark` is its kind's glyph (the star when the kind is unknown) and a launched subagent's its kind's glyph alone (`[sub] <launcher>` when it has none); `[ally]` and a member's person stay. The dashboard draws the same glyph before a row's name, with the role word in the kind column as before.
 - **Helper.** `roleWord(role, duty?, graph?)` returns the kind word if there is a duty, else `roleName(role)`. For a main with a graph it appends ` · <graph word>`, as `協調者 · 分支匯流`. The card and the dossier pass `u.todo?.graph`; other sites pass none.
   - **Sites that hold a `Unit` pass `u.duty`:** the card (`gui/render.ts:158`), tokens, Zen's meta, and the dossier.
   - **Sites that hold a key look up `locate(scene.net, key)?.u.duty`:** layer alerts and drawer rows.
@@ -588,7 +591,7 @@ Watch the unit your task names: call `watch_read` with the last `since` and the 
   - **Wire.** An entry of `mains` gains an optional seventh field, `kind`: `coordinator`, `integrator`, or `standing` (the duty the main published as `sb_duty`, as the net's `Unit.duty` reads it), or `train` (a pane whose `sb_role` is `train`). It is at most `LIMITS.mainKind` = 16 bytes (the longest word is 11), cut when it is written and again when it is read. It is left out when the box knows no kind, so an entry with none is the six fields of before. The decoder takes six or seven fields and refuses any other count.
   - **Caps.** `unit-status.kind` is in `CAPS_FEATURES`. The box writes the field only to a controller whose fresh `caps` list `unit-status.mains` and `unit-status.kind`; to every other it strips `kind` from each entry, since a decoder of before takes exactly six fields and would drop the whole status. An older device therefore reads what it read before.
   - **Who sees which main does not change.** `mains` is still the mains the controller may stop: its own, or the team's for an admin (the [remote stop spec](2026-11-07-link-remote-stop.md) §3.2). The kind is a word on those rows, not a wider list.
-  - **The page.** `MainCard.kind` keeps the four words and drops any other. The row of the Mains fold draws the word between the name and the state with `roleWord`, as the local page does: the same word in every theme (§11), and `train` through the role noun; a main with no kind draws no word. Icons stay by position (D9).
+  - **The page.** `MainCard.kind` keeps the four words and drops any other. The row of the Mains fold draws the word between the name and the state with `roleWord`, as the local page does: the same word in every theme (§11), and `train` through the role noun; a main with no kind draws no word. The row also draws the kind's icon (D16, §11): a train's locomotive, the main's own icon for a main with none or one the page does not draw.
   - **A tower's runs are not units.** A box tower wakes a short run for each message (an ally run, an event run). The ally card says a tower unit in the service's `running` or `waking` state is a *run in progress* and, in the tooltip of the state word, that the tower stands by between runs; it does not say *running*, which a plain unit's `working` keeps. On the operate base of the same box the finished runs (the ledger's `ally`, `run`, and `tower` roles) are their own closed fold, *Tower runs*, beside the agents' *Earlier runs*, and never rows among the agents.
 - **Operate controllers.**
   - The kind word and the graph cross in the snapshot (D13, Q2 「可以」): the sanitizer keeps `duty`, event `kind: "duty"`, and `todo.graph` (`src/server/operatesanitize.ts:77`).

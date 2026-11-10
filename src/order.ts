@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
 import { subagents } from "./netdata.ts";
 import { isCode, isName, shortCode } from "./train/spec.ts";
-import { ALLY_MARK, ARROW, type HerdrRun, type HerdrTab, type HerdrWorld, isHead, isSub, MARK, type Pane, type Place, report, type Workspace, worldOf } from "./herdr.ts";
+import type { CoordinatorDuty } from "./duty.ts";
+import { ALLY_MARK, ARROW, type HerdrRun, type HerdrTab, type HerdrWorld, isHead, isSub, KIND_MARK, MARK, type Pane, type Place, report, type Workspace, worldOf } from "./herdr.ts";
 
 // Five display tokens for the sidebar plugin and for Herdr's own Agents rows, written next to `sb_role`:
 //  - `sb_order`: a sort key that lays the net out as the head tower's workspace first, then the other workspaces in Herdr's order, in each the tower
 //    and then the tabs in tab order, in each tab the main agent and then the members, and every subagent right after the session that launched it,
 //    its own subagents after it in turn. Segments are fixed-width and `.`-separated, so plain string order is the numeric order of every segment,
 //    and a subagent's key is its parent's key plus one more segment, which sorts after the parent and before the parent's next sibling.
-//  - `sb_mark`: a short label that says what a net member is, a star (U+F005) alone for a main agent, a person (U+F007) alone for a member, and `[sub]` and the launcher's name for a subagent.
+//  - `sb_mark`: a short label that says what a net member is, its kind's glyph alone for a main agent (`KIND_MARK`; the star U+F005 when it has none), a person (U+F007) alone for a member, and for a subagent its kind's glyph alone (`[sub]` and the launcher's name when it has none).
 //    A tower has none: its tab already carries the radio tower glyph.
 //  - `sb_main_tab` / `sb_tab`: a main agent's or a member's tab label, one token per role so a row can color each (a Herdr rule sees only its own token).
 //    A member's keeps the `sb_tab` name it has had since 0.7.2, so a row reading it works with sessions that have not reloaded; 0.13.3's `sb_member_tab` is cleared.
@@ -30,7 +31,7 @@ const short = (name: string) => (name.length > NAME_MAX ? `${name.slice(0, NAME_
 /**
  * What a session is besides its role, as far as its key and mark go: a train's code and project (from its own record), and whether it is an integrator: a main by its own duty, a member by the `sb_duty` token of its tab's main.
  */
-export interface Who { code?: string; project?: string; integrator?: boolean }
+export interface Who { code?: string; project?: string; integrator?: boolean; /** A main's own kind (its `sb_duty`): its mark. */ duty?: CoordinatorDuty }
 
 /**
  * The key of a session that is in the net, or undefined when Herdr cannot place it. Workspaces count among the base ones (a sub workspace is a
@@ -66,7 +67,7 @@ export function descendants(parent: Pane | undefined, key: string, name: string,
 		if (!row.pane || seen.has(row.pane)) return [];
 		seen.add(row.pane);
 		const order = `${key}.${part(i)}`, indent = rows.slice(i + 1).some((r) => r.pane && !seen.has(r.pane)) ? INDENT.more : INDENT.last;
-		return [{ pane: row.pane, order, mark: `${ARROW} ${short(name)}`, indent, name: short(row.text) }, ...descendants(ps.find((p) => p.pane_id === row.pane), order, row.text, ps, now, seen)];
+		return [{ pane: row.pane, order, mark: row.duty ? KIND_MARK[row.duty] : `${ARROW} ${short(name)}`, indent, name: short(row.text) }, ...descendants(ps.find((p) => p.pane_id === row.pane), order, row.text, ps, now, seen)];
 	});
 }
 
@@ -95,9 +96,9 @@ export function allyKids(towerKey: string, allies: { pane: string; label: string
 	return allies.map((ally, i) => ({ pane: ally.pane, order: `${towerKey}.${part(i)}`, mark: `${ALLY_MARK} ${short(ally.label)}`, indent: i < allies.length - 1 ? INDENT.more : INDENT.last, name: "ally run" }));
 }
 
-/** The mark of a role: none for a tower (its tab carries the glyph), the code-fork for the integrator, the train glyph and the short code for a train (none when the code is no code). */
+/** The mark of a role: none for a tower (its tab carries the glyph), a main's kind glyph (the code-fork for the integrator), the train glyph and the short code for a train (none when the code is no code). */
 const markOf = (role: "tower" | "main" | "member" | "train", who: Who): string | null =>
-	role === "tower" ? null : role === "train" ? (who.code ? `${MARK.train} ${shortCode(who.code)}` : null) : role === "main" && who.integrator ? MARK.integrator : MARK[role];
+	role === "tower" ? null : role === "train" ? (who.code ? `${MARK.train} ${shortCode(who.code)}` : null) : role === "main" ? (who.duty ? KIND_MARK[who.duty] : who.integrator ? MARK.integrator : MARK.main) : MARK[role];
 
 /**
  * What a session publishes besides its role: its own tokens (null clears them when Herdr cannot place the session, a tower has no mark, and none
@@ -107,7 +108,7 @@ const markOf = (role: "tower" | "main" | "member" | "train", who: Who): string |
 export async function netTokens(run: HerdrRun, place: Place, role: "tower" | "main" | "member" | "train", name: string, now = Date.now(), world: HerdrWorld = worldOf(run), who: Who & { step?: string } = {}): Promise<{ own: Record<string, string | null>; kids: Kid[]; joined: Set<string>; waiting: boolean }> {
 	const { panes: ps, workspaces: all, tabs: tabList } = await world(place.workspaceId);
 	const pane = ps.find((p) => p.pane_id === place.paneId);
-	const mine: Who = { ...(role === "train" && who.code !== undefined && isCode(who.code) && isName(who.project) ? { code: who.code, project: who.project } : {}), ...(role === "main" && who.integrator ? { integrator: true } : {}), ...(role === "member" && pane && integratorTab(pane, ps) ? { integrator: true } : {}) };
+	const mine: Who = { ...(role === "train" && who.code !== undefined && isCode(who.code) && isName(who.project) ? { code: who.code, project: who.project } : {}), ...(role === "main" && who.integrator ? { integrator: true } : {}), ...(role === "main" && who.duty ? { duty: who.duty } : {}), ...(role === "member" && pane && integratorTab(pane, ps) ? { integrator: true } : {}) };
 	const key = pane && orderKey(role, pane, ps, all, tabList, mine);
 	const joined = new Set(ps.filter((p) => p.tokens?.sb_role).map((p) => p.pane_id));
 	const tab = tabList.find((t) => t.tab_id === pane?.tab_id)?.label || null;

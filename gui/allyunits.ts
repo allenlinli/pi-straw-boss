@@ -1,6 +1,7 @@
 import { MAIN_KINDS, reportPeek, type MainCard, type UnitCard } from "./linkmodel.ts";
 import { requested, stopMain } from "./mainstop.ts";
 import { m } from "./sentences.ts";
+import { iconRef, unitIcon } from "./icons.ts";
 import { ago, html, roleWord, sync, text } from "./render.ts";
 
 // What an unattended device says about its units, as the card of its ally base draws it (docs/how-it-works.md, Unattended devices; the holder's `unit-status`): per unit a state word with how long ago the box said it, its monitors on one
@@ -35,7 +36,7 @@ function clock(box: HTMLElement, since: number, pre = "", post = m.link_unit_ago
 }
 
 type MainRow = MainCard & { id: string };
-const makeMain = () => html(`<li class="au-main"><span class="au-mdot"></span><b class="au-mname"></b><em class="role au-mkind" hidden></em><span class="au-mstate"></span><span class="au-mby" hidden></span><button type="button" class="au-stop" hidden></button></li>`);
+const makeMain = () => html(`<li class="au-main"><span class="au-mdot"></span><svg class="au-micon" viewBox="0 0 512 512" aria-hidden="true"><use data-icon="main"/></svg><b class="au-mname"></b><em class="role au-mkind" hidden></em><span class="au-mstate"></span><span class="au-mby" hidden></span><button type="button" class="au-stop" hidden></button></li>`);
 /** The kind word of a main as the local page draws it (docs/specs/2026-11-09-agent-kinds.md §11, `roleWord`): the box's word for a coordinator, integrator or standing main, `train` for a train; none for a main whose box named no kind or one this page does not draw. */
 const kindWord = (kind: string | undefined) => (kind === undefined || !MAIN_KINDS.includes(kind) ? "" : kind === "train" ? roleWord("train") : roleWord("main", kind));
 /** The mains of a unit, in a fold of their own: name, kind word, state word, the dispatcher for a main another device dispatched, and Stop where the box takes one (a pending stop reads "stopping…" in its place). */
@@ -53,6 +54,9 @@ function fillMains(li: HTMLElement, u: UnitCard, box: string) {
 		kindEl.textContent = kind;
 		if (kind) row.dataset.kind = c.kind!;
 		else delete row.dataset.kind;
+		const use = row.querySelector("use")!, icon = kind && c.kind === "train" ? "train" : unitIcon("main", kind ? c.kind : undefined); // the kind's icon, as the local page draws it (D16); a main with none keeps the main's
+		use.dataset.icon = icon;
+		use.setAttribute("href", iconRef(icon));
 		text(row, ".au-mstate", word);
 		const by = row.querySelector<HTMLElement>(".au-mby")!;
 		by.hidden = c.byLabel === undefined;

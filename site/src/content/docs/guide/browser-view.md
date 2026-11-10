@@ -13,6 +13,8 @@ The sb server serves it, one per computer, so it does not depend on which sessio
 
 Each workspace is a **base**, with its tower, its tabs as **squads**, and every agent and subagent as a **unit** in a live state: working, waiting on you, commanding (idle while a subagent or a monitor of it works), idle, finished, or failed.
 Click a base to zoom in, and click a unit to read its chat as a live comms log.
+A unit's icon tells its kind: a ship's wheel for a coordinator, two arrows joining for an integrator, a lighthouse for a standing main, a locomotive for a train, and a wrench, binoculars, a pencil and ruler, a magnifier or a hound for a launched worker, scout, planner, reviewer or watchdog.
+The tower and the head tower keep their own icons, and a unit with no known kind keeps the plain main, member or subagent icon; the unit's kind word is beside its name.
 
 <p align="center"><img src="/pi-straw-boss/docs/img/gui-comms.png" width="49%" alt="A unit's comms: its chat as a live log, the messages queued for its next turn, its todo list, its background monitors, and its dossier"> <img src="/pi-straw-boss/docs/img/gui-alert.png" width="49%" alt="An alert dialog with the question a unit waits on, with its options to pick and a note to add"></p>
 
@@ -62,7 +64,7 @@ Each device picks its view on the settings page: Auto, Standard, Geek, Zen, or R
 - **Standard** is the map above.
 - **Geek** is a terminal: black, monospace, high contrast, no motion, and each state also as a text tag such as `[WORK]`, `[WAIT?]`, or `[ERR!]`.
 - **Zen** is for the hours when you are answering the net rather than steering it (below).
-- **Raven Keep** is a gothic skin of Standard: the same layout, its own icons, role names, and sounds.
+- **Raven Keep** is a gothic skin of Standard: the same layout, its own icons, role names, and sounds. The kinds' icons are Standard's in it.
 
 <p align="center"><img src="/pi-straw-boss/docs/img/gui-geek.png" width="70%" alt="The Geek view of the map: black, monospace, high contrast, with each unit's state as a tag"></p>
 

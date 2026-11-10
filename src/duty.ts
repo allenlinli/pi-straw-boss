@@ -8,6 +8,7 @@ const AGENT_DUTY: Record<string, Duty> = { worker: "worker", scout: "scout", pla
 export const GRAPHS = ["single-loop", "fan-out/fan-in", "orchestrator-worker"] as const; // planning.md §1; a graph is not a duty (D10)
 export type Graph = (typeof GRAPHS)[number];
 export const isCoordinatorDuty = (v: unknown): v is CoordinatorDuty => typeof v === "string" && (COORDINATOR_DUTIES as readonly string[]).includes(v);
+export const isDuty = (v: unknown): v is Duty => isCoordinatorDuty(v) || (typeof v === "string" && (WORKER_DUTIES as readonly string[]).includes(v));
 export const isGraph = (v: unknown): v is Graph => typeof v === "string" && (GRAPHS as readonly string[]).includes(v);
 /** A todo's `metadata.graph` as mains write it (review 6's live values) → a graph; anything else has none. */
 export const graphOf = (v: unknown): Graph | undefined =>

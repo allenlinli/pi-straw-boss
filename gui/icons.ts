@@ -1,6 +1,16 @@
-// The role icons: one chokepoint, `iconRef(role)`. Standard's sprite is inline in index.html (`#i-<role>`, with its game-icons credit) and stays for every view. A theme's sprite is injected into a hidden <svg id="theme-sprite">
+// The role icons: one chokepoint, `iconRef(role)`; `unitIcon(role, duty)` names the icon a unit takes, its kind's (docs/specs/2026-11-09-agent-kinds.md D16) or its position's. Standard's sprite is inline in index.html (`#i-<role>`, with its game-icons credit) and stays for every view. A theme's sprite is injected into a hidden <svg id="theme-sprite">
 // with ids prefixed by the view (`raven-tower`); while it is loaded and has the role, that view's icon is used, else Standard's. Elements made from a template or set once carry `data-icon="<role>"`, so a theme arriving
 // (or the view changing) points them again with `repoint`.
+
+/** The icon of each role (position): the keys of Standard's sprite a unit, a tower or a row takes. */
+export const ICON: Record<string, string> = { main: "main", member: "member", train: "train", subagent: "subagent", outpost: "outpost", outside: "outside", tower: "tower", ally: "tower", run: "tower" };
+/** The kinds that have an icon of their own, keyed by duty (src/duty.ts): `#i-<duty>` in Standard's sprite; a train's is its role's (`ICON.train`). */
+const KIND_ICONS = ["coordinator", "integrator", "standing", "worker", "scout", "planner", "reviewer", "watchdog"];
+const KINDED = ["main", "member", "subagent"];
+/** The icon id of a unit's kind when its role can have one and the duty is a kind. */
+export const kindIcon = (role: string, duty?: string): string | undefined => (duty !== undefined && KINDED.includes(role) && KIND_ICONS.includes(duty) ? duty : undefined);
+/** The icon id of a unit: its kind's, else its position's (a unit with no known kind looks as it did, and the tower and the head keep theirs). */
+export const unitIcon = (role: string, duty?: string): string => kindIcon(role, duty) ?? ICON[role] ?? "member";
 
 const sprites = new Map<string, Set<string>>();
 let view = "standard";

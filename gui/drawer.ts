@@ -77,7 +77,7 @@ export function mountDrawer(off: () => boolean = () => false) {
 			el.toggleAttribute("data-dismiss", r.role === "subagent" && r.ended); // swiped to the right, it goes (quit.ts aimUnit's rule)
 			el.dataset.key = r.key;
 			mark(el, r.mark);
-			fillPlate(el.querySelector(".plate")!, r.role, r.mark);
+			fillPlate(el.querySelector(".plate")!, r.role, r.mark, undefined, locate(latest, r.key)?.u.duty);
 			text(el, ".name", r.name);
 			text(el, ".role", ((u) => (u ? roleWord(u.role, u.duty) : roleName(r.role)))(locate(latest, r.key)?.u));
 			text(el, ".dstate", shortState(r.mark, r.ended));

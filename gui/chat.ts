@@ -14,7 +14,7 @@ import { post } from "./post.ts";
 import type { Post } from "./composer.ts";
 import { m } from "./sentences.ts"; import { iconRef } from "./icons.ts"; import { noun } from "./nouns.ts";
 import { getLocale } from "./paraglide/runtime.js";
-import { html, ICON, roleName } from "./render.ts";
+import { html, roleName } from "./render.ts"; import { ICON, kindIcon } from "./icons.ts";
 import { conversationDivider } from "./towermodel.ts";
 import { bossTurn, eventTurn, heard, senderOf, type Turn } from "./towerturns.ts";
 
@@ -99,9 +99,9 @@ export const speaker = (who: { role: string; head?: boolean }) => (who.head ? no
 const clock = (at?: string) => (at ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "");
 const size = (n: number) => (n >= 1024 ? `${(n / 1024).toFixed(n >= 10240 ? 0 : 1)} KB` : `${n} B`);
 const NOTICE: Record<string, () => string> = { intercom_message: m.notice_intercom, subagent_result: m.notice_result, subagent_ping: m.notice_ping, subagent_status: m.notice_status, "pi-loop-monitor": m.notice_monitor, "memory-context": m.notice_memory, "doc-review": m.notice_doc_review, "straw-tower": m.notice_tower, "straw-link": m.notice_straw_link };
-const icon = (name: string) => {
+const icon = (name: string, duty?: string) => {
 	const span = html(`<span class="ava"><svg><use/></svg></span>`);
-	const use = span.querySelector("use")!, role = ICON[name] ?? name;
+	const use = span.querySelector("use")!, role = kindIcon(name, duty) ?? ICON[name] ?? name;
 	use.dataset.icon = role;
 	use.setAttribute("href", iconRef(role));
 	return span;
@@ -226,7 +226,7 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, pa
 				if (bare() && !it.text && !it.thought && !it.error && !it.stop) return skipped(); // the head's page shows its words: an entry of tool calls alone is not content there
 				const body = h("pre", { class: "thought-text" }), more = it.thought ? h("button", { class: "thought", type: "button" }, it.thought < 0 ? m.thought_redacted() : m.thought_chars({ count: it.thought.toLocaleString() })) : null;
 				if (it.thought && it.thought > 0) more?.addEventListener("click", () => fetchBody(more, body, it.id, (full) => full.thoughtText));
-				return h("article", { class: me.head ? "tx in head" : "tx in" }, icon(me.head ? "crown" : me.role), h("div", { class: "tx-body" }, h("header", null, h("b", null, speaker(me)), it.model ? h("span", null, it.model) : null, stamp(it), it.stop ? h("span", { class: "stop", "data-mark": "error" }, it.stop) : null), more, body, it.text ? textOf(it.id, it.text) : null, it.error ? h("p", { class: "fault" }, it.error) : null, ...(bare() ? [] : it.tools ?? []).flatMap((t) => action(t, it.id))));
+				return h("article", { class: me.head ? "tx in head" : "tx in" }, icon(me.head ? "crown" : me.role, me.duty), h("div", { class: "tx-body" }, h("header", null, h("b", null, speaker(me)), it.model ? h("span", null, it.model) : null, stamp(it), it.stop ? h("span", { class: "stop", "data-mark": "error" }, it.stop) : null), more, body, it.text ? textOf(it.id, it.text) : null, it.error ? h("p", { class: "fault" }, it.error) : null, ...(bare() ? [] : it.tools ?? []).flatMap((t) => action(t, it.id))));
 			}
 			case "bash": if (bare()) return skipped(); return h("article", { class: "tx sys" }, h("details", { class: "act" }, h("summary", { "data-mark": it.exit ? "error" : "done" }, h("b", { class: "badge" }), h("code", null, "shell"), h("span", { class: "sum" }, `! ${it.command}`), it.exit ? h("span", { class: "stop", "data-mark": "error" }, m.exit_code({ code: it.exit })) : null), it.text ? h("pre", { class: "out" }, it.text) : null));
 			case "notice": {

@@ -20,7 +20,7 @@ export function mountDossier(host: HTMLElement, scene: Readonly<Scene>, { openTi
 		if (!host.firstElementChild) (host.append(html(DOSSIER())), (host.querySelector<HTMLElement>(".d-x")!.onclick = () => fullScreen(false)));
 		const root = host.firstElementChild as HTMLElement, { net, info, model, ctx } = scene, ws = wsOf(scene);
 		mark(root, mk);
-		fillPlate(root.querySelector(".plate")!, u?.role ?? info?.role ?? "member", mk);
+		fillPlate(root.querySelector(".plate")!, u?.role ?? info?.role ?? "member", mk, undefined, u?.duty);
 		const ally = !u && info?.role === "ally", eventRun = !u && info?.role === "run"; // an ally or event run's comms: a unit only its tower's chip lists (src/net.ts)
 		text(root, "h3", ally ? m.ally_run({ device: name }) : eventRun ? m.event_run({ id: name }) : name);
 		text(root, ".role", u ? roleWord(u.role, u.duty, u.todo?.graph) : roleName(info?.role ?? "session"));

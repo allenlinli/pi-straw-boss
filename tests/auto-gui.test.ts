@@ -262,7 +262,8 @@ test("a secret card parked by auto mode has no start button and says to end auto
 	const secret = w("W4", { parked: true, card: { type: "secret", lang: "en", happened: "h", do: "d", secret: { name: "key" }, from: { name: "x", role: "main", key: "a1" } } });
 	const model = cardModel({ wait: secret as never, phase: "open", remote: false, open: true, now: Date.now() });
 	assert.equal(model.buttons.some((b) => b.id === "secret"), false, "the start button is hidden");
-	assert.equal(model.remote, m.wc_secret_parked());
+	assert.equal(model.line, m.wc_secret_parked(), "the status line says it");
+	assert.equal(model.remote, undefined, "no line of its own above the rows");
 	const plain = cardModel({ wait: { ...secret, parked: undefined } as never, phase: "open", remote: false, open: true, now: Date.now() });
 	assert.equal(plain.buttons.some((b) => b.id === "secret"), true, "off auto mode the card is as it was");
 });

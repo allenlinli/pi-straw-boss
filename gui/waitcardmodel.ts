@@ -104,18 +104,18 @@ export function cardModel(i: CardInput, opts?: Opts): CardModel {
 	const act = (b: Button) => {
 		if (phase !== "ended") buttons.push(say(b));
 	};
-	let remote: string | undefined;
+	let remote: string | undefined, parkedLine = "";
 	if (phase !== "ended") {
 		if (kind === "action" && !pressed) act({ id: "done", label: m.wc_b_done({}, o), primary: true });
 		else if (kind === "choice") card!.options?.forEach((opt, k) => act({ id: "choose", label: opt.label, then: opt.then, option: k, ...(pressed && w.press?.option === k ? { picked: true } : {}) }));
 		else if (kind === "secret" && !pressed) {
-			if (step === 1) (w.parked ? (remote = m.wc_secret_parked({}, o)) : i.remote ? (remote = m.wc_at_computer({}, o)) : act({ id: "secret", label: m.wc_b_start({}, o), primary: true }));
+			if (step === 1) (w.parked ? (parkedLine = m.wc_secret_parked({}, o)) : i.remote ? (remote = m.wc_at_computer({}, o)) : act({ id: "secret", label: m.wc_b_start({}, o), primary: true }));
 			else act({ id: "entered", label: m.wc_b_entered({}, o), primary: true });
 		} else if (kind === "legacy" && !pressed && !w.cut) act({ id: "restate", label: word(m.wc_b_restate, m.wc_b_restate_head, o)({}, o), primary: true });
 		if (card?.from && !card.from.gone && card.from.key && i.open) buttons.push({ id: "main", label: m.wc_b_main({ name: card.from.name }, o), ...(off ? { disabled: true } : {}) });
 		buttons.push({ id: "reply", label: word(m.wc_b_reply, m.wc_b_reply_head, o)({}, o) }); // the reply fold keeps its own state (waitpanel.ts): an offline page keeps it and says so in the box
 		if (!(w.press?.act === "decline")) buttons.push({ id: "skip", label: m.wc_b_skip({}, o), ...(phase === "stale" || phase === "sending" ? { disabled: true } : {}) });
 	}
-	const line = phase === "ended" ? (w.outcome ? word(m.wc_ended, m.wc_ended_head, o)({ outcome: w.outcome }, o) : word(m.wc_ended_plain, m.wc_ended_plain_head, o)({}, o)) : phase === "stale" ? (i.blocked ?? m.wc_stale({}, o)) : pressed ? pressedLine(w, o) : step === 2 ? secretLine(w, i.secretOpen, o) : "";
+	const line = phase === "ended" ? (w.outcome ? word(m.wc_ended, m.wc_ended_head, o)({ outcome: w.outcome }, o) : word(m.wc_ended_plain, m.wc_ended_plain_head, o)({}, o)) : phase === "stale" ? (i.blocked ?? m.wc_stale({}, o)) : pressed ? pressedLine(w, o) : step === 2 ? secretLine(w, i.secretOpen, o) : parkedLine; // a parked secret card says to end auto mode first in the status line, in place of its start row (spec wait-cards-tui, section 4)
 	return { kind, tag: tagOf(kind, o), raised: raisedLine(w, i.now, o), parts, buttons, line, ...(remote ? { remote } : {}), ...(w.parked && phase !== "ended" ? { parked: m.wait_parked({}, o) } : {}), ...(step ? { step } : {}), whole: !w.cut };
 }

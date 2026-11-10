@@ -126,7 +126,7 @@ export function waitCard(o: WaitCardOptions) {
 		if (r.taken) {
 			pick = undefined;
 			render();
-			o.done?.(m.wait_sent());
+			o.done?.(o.head ? m.wait_sent_head() : m.wait_sent());
 		} else (refusal = r.why ?? "", render(), reply.box.focus());
 	}
 	const choose = (b: CardModel["buttons"][number]) => {
@@ -138,19 +138,22 @@ export function waitCard(o: WaitCardOptions) {
 		else if (b.id === "skip") reveal.scrollIntoView?.({ block: "nearest" });
 	};
 	send.onclick = () => void (pick && (pick.id === "reply" ? tell() : press(pick)));
-	const sendOnEnter = (e: KeyboardEvent) => {
+	/** Enter in a box: the reply's words are sent; Skip's reason only moves on to Send, as the alert card's own words do (askkeys.ts), since a decline is not undone. */
+	const onEnter = (act: () => void) => (e: KeyboardEvent) => {
 		if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;
 		e.preventDefault();
 		render(); // words set without an input event (autofill, an IME) are read as they stand
-		if (!send.disabled) send.click();
+		if (!send.disabled) act();
 	};
-	for (const box of [reason, reply.box]) box.addEventListener("keydown", sendOnEnter as EventListener);
+	reply.box.addEventListener("keydown", onEnter(() => send.click()) as EventListener);
+	reason.addEventListener("keydown", onEnter(() => send.focus()) as EventListener);
 	reply.box.addEventListener("input", () => ((refusal = ""), render()));
 	const keys = wire(opts, [{ opts: rows, multiple: false, answered: () => pick !== undefined }], () => send);
 
 	function partEl(p: CardModel["parts"][number], lang: string): HTMLElement {
 		const body: (HTMLElement | string)[] = [];
-		const clampable = o.host !== "dialog" && !p.url && !p.command && p.text.length > CLAMP_AT, clamped = clampable && !expanded.has(p.id);
+		const asked = p.id === "do" || p.id === "words"; // what you do (a choice: what you decide) is the panel's question: read whole, at the size a long question has (wg-F003)
+		const clampable = o.host !== "dialog" && !asked && !p.url && !p.command && p.text.length > CLAMP_AT, clamped = clampable && !expanded.has(p.id);
 		if (p.url) {
 			const href = safeHref(p.url);
 			body.push(h("span", { class: "wc-text wc-url", lang }, href ?? p.url));
@@ -169,7 +172,6 @@ export function waitCard(o: WaitCardOptions) {
 			};
 			body.push(pre, copy, h("small", { class: "wc-norun" }, m.wc_not_run()), said);
 		}
-		const asked = p.id === "do" || p.id === "words"; // what you do (a choice: what you decide) is the panel's question
 		const words = !p.url && p.command === undefined ? h(asked ? "p" : "span", { class: `wc-text${asked ? " ask-q" : ""}${clamped ? " wc-clamp" : ""}`, lang, ...(asked && p.text.length > LONG_Q ? { "data-long": "" } : {}) }, p.text) : undefined;
 		if (words) body.push(words);
 		if (clampable && words) {
@@ -193,7 +195,7 @@ export function waitCard(o: WaitCardOptions) {
 		const w = effective(), md = model(), lang = w.card?.lang ?? "", ph = phase();
 		const doText = md.parts.find((p) => p.id === "do" || p.id === "words")?.text ?? "";
 		const rowOf = md.buttons.filter((b) => b.id !== "main");
-		if (pick && !rowOf.some((b) => same(pick, b))) pick = undefined; // the row is gone (the wait was pressed or ended)
+		if (pick && !rowOf.some((b) => same(pick, b) && !(b.disabled && ph === "open"))) pick = undefined; // the row is gone, or was pressed elsewhere (the wait was pressed or ended)
 		root.dataset.kind = md.kind;
 		root.dataset.phase = ph;
 		root.dataset.folded = String(folded);
@@ -206,13 +208,14 @@ export function waitCard(o: WaitCardOptions) {
 			last = sig;
 			if (o.host === "row") {
 				const fold = h("button", { type: "button", class: "wc-fold", "aria-expanded": String(!folded) }, h("b", { class: "wc-tag" }, md.tag), md.parked ? h("small", { class: "wc-parked" }, md.parked) : null, h("span", { class: "wc-do", lang }, doText), h("small", { class: "wc-raised" }, md.raised));
-				fold.onclick = () => ((folded = !folded), render());
+				fold.onclick = () => ((folded = !folded), folded && (pick = undefined), render()); // folding drops the pick: nothing is preselected when it is unfolded again
 				head.replaceChildren(fold);
 			} else head.replaceChildren(...nodes(h("b", { class: "wc-tag" }, md.tag), md.parked ? h("small", { class: "wc-parked" }, md.parked) : null, h("small", { class: "wc-raised" }, md.raised)));
 			parts.replaceChildren(...md.parts.map((p) => partEl(p, lang)));
 			hint.textContent = md.remote ?? "";
 		}
 		for (const el of [parts, hint, opts, reveal, acts]) el.hidden = folded;
+		acts.hidden = folded || ph === "ended"; // an ended wait answers nothing: no dead Send
 		hint.hidden = !md.remote || folded;
 		// The rows: rebuilt only when the acts change, so the key presses that move and pick (askkeys.ts) keep the element they are on.
 		const held = globalThis.document.activeElement as HTMLElement | null, keep = held && opts.contains(held) ? `${held.dataset.act}:${held.dataset.option ?? ""}` : undefined;
@@ -229,11 +232,12 @@ export function waitCard(o: WaitCardOptions) {
 			opts.replaceChildren(...made);
 			if (keep) rows.find((el) => `${el.dataset.act}:${el.dataset.option ?? ""}` === keep)?.focus();
 		}
+		const stop = rowOf.findIndex((b) => !b.disabled); // the tab stop of the group without a pick: the first row that can be pressed
 		rowOf.forEach((b, i) => {
 			const el = rows[i]!;
 			mark(el, same(pick, b) || Boolean(b.picked)); // a pressed choice stays marked
 			el.disabled = Boolean(b.disabled);
-			el.setAttribute("tabindex", String(pick ? (same(pick, b) ? 0 : -1) : i === 0 ? 0 : -1));
+			el.setAttribute("tabindex", String(pick ? (same(pick, b) ? 0 : -1) : i === stop ? 0 : -1));
 		});
 		// What the picked row reveals: Skip says who is told and takes a reason, Reply takes the words.
 		const skipping = pick?.id === "skip", replying = pick?.id === "reply";
@@ -295,10 +299,10 @@ export function waitCard(o: WaitCardOptions) {
 			rows.find((el) => el.dataset.act === "reply")?.focus();
 			return true;
 		},
-		/** The chosen row takes the focus when the card is taken (Z-D20), else the first; false when there is none to take. */
+		/** The chosen row takes the focus when the card is taken (Z-D20), else the first one that can be pressed; false when there is none to take. */
 		enter(): boolean {
-			const to = keys();
-			return Boolean(to && !to.disabled && (to.focus(), true));
+			const to = keys(), take = to && !to.disabled ? to : rows.find((el) => !el.disabled); // the chosen row of a pressed choice is off: the first row that can still be pressed
+			return Boolean(take && (take.focus(), true));
 		},
 	};
 }

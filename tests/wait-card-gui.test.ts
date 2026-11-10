@@ -388,10 +388,11 @@ test("the raiser's link is a quiet link beside Send, not an act row; a parked ca
 	assert.ok(act(card, "done") && act(card, "reply") && act(card, "skip"), "the acts stay");
 });
 
-test("a parked secret card has no start row and says to end auto mode above the acts (auto mode 5b's line)", () => {
+test("a parked secret card has no start row and says to end auto mode in the status line (spec wait-cards-tui, section 4)", () => {
 	const card = rig(wait(secret(), { parked: true }));
 	assert.equal(act(card, "secret"), undefined);
-	assert.ok(byClass(card, "ask-why").some((x) => x.textContent === m.wc_secret_parked()));
+	assert.equal(note(card).textContent, m.wc_secret_parked());
+	assert.equal(byClass(card, "ask-why").some((x) => x.textContent === m.wc_secret_parked()), false, "no second copy above the rows");
 });
 
 test("a head wait's card names the head tower in its own words (Q3), a workspace's keeps the tower", () => {
@@ -564,4 +565,121 @@ test("RR-F002 the card: a card off for an away box says box_answer_blocked in it
 	card.update(wait(fonstar()), true);
 	assert.equal(status.textContent, "");
 	assert.equal(act(card, "done")!.disabled, false);
+});
+
+// --- the review's fixes (wait-gui: wg-F003 to wg-F010) -------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+const key = (name: string, extra: object = {}) => ({ type: "keydown", key: name, shiftKey: false, isComposing: false, keyCode: 13, preventDefault() {}, ...extra });
+const unfold = (card: ReturnType<typeof rig>) => byClass(card, "wc-fold")[0]!.click();
+const marked = (card: ReturnType<typeof rig>) => (card.el as unknown as El).find((el) => el.tag === "button" && el.classes.has("ask-opt") && el.getAttribute("aria-checked") === "true").map((el) => `${el.dataset.act}:${el.dataset.option ?? ""}`);
+
+test("wg-F003: what you do is the panel's question: read whole at any length outside the dialog (no clamp, no More), and Zen sets a long one at the long question's size", () => {
+	const long = "Open the admin page of the machine and re-authorize it, then set its key to never expire, so that this does not come back.";
+	assert.ok(long.length > 90);
+	for (const host of ["row", "zen"] as const) {
+		page.body.replaceChildren();
+		const card = rig(wait(fonstar({ do: long, happened: "It expired." })), { host });
+		if (host === "row") unfold(card);
+		const q = byClass(card, "ask-q")[0]!;
+		assert.equal(q.classes.has("wc-clamp"), false, `${host}: the question is not clamped`);
+		assert.equal(q.getAttribute("data-long"), "", `${host}: a long one is marked`);
+		assert.equal(byClass(card, "wc-more").length, 0, `${host}: nothing is behind More`);
+	}
+	const rule = zen.split("\n").find((l) => l.startsWith('[data-view="zen"] .wait-card .ask-q[data-long] {'));
+	assert.ok(rule, "Zen's rule for a wait card's long question");
+	assert.match(rule!, /font-size:\s*clamp\(1\.05rem, 2\.2vw, 1\.25rem\)/);
+	assert.doesNotMatch(rule!, /line-clamp/, "and no clamp");
+});
+
+test("wg-F004: a choice pressed elsewhere while a row is picked here drops the pick: Send is off and only the pressed option is marked", () => {
+	const card = rig(wait(choice()));
+	pick(card, "choose", 0);
+	assert.equal(send(card).disabled, false);
+	card.update(wait(choice(), { press: press("choose", { option: 1 }) }));
+	assert.equal(send(card).disabled, true);
+	assert.deepEqual(marked(card), ["choose:1"]);
+});
+
+test("wg-F005: after a choice is pressed the group's tab stop is the first row that can be pressed (Reply), not a disabled one", async () => {
+	const card = rig(wait(choice()));
+	go(card, "choose", 0);
+	await settle();
+	const rows = (card.el as unknown as El).find((el) => el.tag === "button" && el.classes.has("ask-opt"));
+	assert.deepEqual(rows.map((el) => [el.dataset.act, el.disabled, el.getAttribute("tabindex")]), [["choose", true, "-1"], ["choose", true, "-1"], ["reply", false, "0"], ["skip", false, "-1"]]);
+	assert.equal(card.enter(), true, "the dialog's focus lands on a row that works");
+	assert.equal(page.activeElement, act(card, "reply"));
+});
+
+test("wg-F006: a wait that ended keeps no Send", () => {
+	const card = rig(wait(fonstar()));
+	assert.equal(send(card).parent!.hidden, false);
+	card.update(wait(fonstar(), { state: "resolved", outcome: "declared done by the tower" }));
+	assert.equal(send(card).parent!.hidden, true, "no dead button under the outcome");
+	assert.ok(note(card).textContent.includes("declared done by the tower"));
+});
+
+test("wg-F007: a reply on a head card says the head tower took it, a workspace card the tower", async () => {
+	for (const [head, said] of [[true, m.wait_sent_head()], [false, m.wait_sent()]] as const) {
+		page.body.replaceChildren();
+		pressed.length = 0;
+		const card = rig(wait(fonstar()), head ? { head: true } : {});
+		pick(card, "reply");
+		byClass(card, "wait-box")[0]!.value = "later";
+		byClass(card, "wait-box")[0]!.dispatchEvent(new Event("input"));
+		send(card).click();
+		await settle();
+		assert.deepEqual(pressed, [said]);
+	}
+	assert.notEqual(m.wait_sent_head(), m.wait_sent());
+});
+
+test("wg-F008: Enter in Skip's reason box moves on to Send and declines nothing; a second Enter on Send is the press. Enter in the reply box still sends it", async () => {
+	const card = rig(wait(fonstar()));
+	pick(card, "skip");
+	const why = byClass(card, "wc-skip-reason")[0]!;
+	why.value = "no";
+	why.dispatchEvent(key("Enter") as never);
+	await settle();
+	assert.equal(sent.length, 0, "nothing was declined");
+	assert.equal(page.activeElement, send(card), "the focus is on Send");
+	send(card).click();
+	await settle();
+	assert.deepEqual(sent.map((s) => s.body), [{ op: "press", id: "W9", act: "decline", reason: "no" }]);
+	page.body.replaceChildren();
+	const r = rig(wait(fonstar()));
+	pick(r, "reply");
+	const box = byClass(r, "wait-box")[0]!;
+	box.value = "ok";
+	box.dispatchEvent(key("Enter", { isComposing: true }) as never);
+	await settle();
+	assert.equal(told.length, 0, "an IME's Enter is not a send");
+	box.dispatchEvent(key("Enter") as never);
+	await settle();
+	assert.equal(told.length, 1, "Enter sends the words");
+});
+
+test("wg-F009: folding a row drops its pick, so an unfolded card never opens with Skip marked", () => {
+	const card = rig(wait(fonstar()), { host: "row" });
+	unfold(card);
+	pick(card, "skip");
+	assert.equal(send(card).disabled, false);
+	unfold(card); // folds
+	unfold(card); // unfolds again
+	assert.deepEqual(marked(card), []);
+	assert.equal(send(card).disabled, true);
+	assert.equal(card.confirming(), false);
+});
+
+test("wg-F010: a reason typed under Skip goes with no other act, and an accepted press clears the pick (Send is off, nothing is marked)", async () => {
+	const card = rig(wait(fonstar()));
+	pick(card, "skip");
+	byClass(card, "wc-skip-reason")[0]!.value = "not needed";
+	go(card, "done");
+	await settle();
+	assert.deepEqual(sent.map((s) => s.body), [{ op: "press", id: "W9", act: "done" }], "no reason with I'm done");
+	const c = rig(wait(choice()));
+	go(c, "choose", 1);
+	await settle();
+	assert.equal(send(c).disabled, true, "the accepted choice left no pick behind");
+	assert.equal(c.confirming(), false);
 });

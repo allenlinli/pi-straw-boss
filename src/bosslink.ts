@@ -4,15 +4,18 @@ import { firstWord, folderOf } from "./bossopen.ts";
 import type { Here } from "./heremark.ts";
 import { hereOnlyOpts } from "./intercept.ts";
 import { line, plain } from "./safetext.ts";
+import { LEVELS, type Level } from "./link/config.ts";
+import { idOk } from "./link/device.ts";
 import { decodeInvite } from "./link/join.ts";
+import type { MemberView } from "./link/admin.ts";
 import type { LinkView } from "./link/holder.ts";
 import type { Lang } from "./memorycmd.ts";
 import { readSecret, showScreen } from "./secretscreen.ts";
 import type { Kit } from "./state.ts";
 
-// The boss's typed twins of the Straw Link operations the page alone could do (`/boss link confirms | confirm | asks | answer | invite show|cancel | join | join cancel | create | leave`; the first of `link status` and
-// `link decide` are bossopen.ts's). Like bosspaths.ts each posts to the route the page posts to (`link/confirm-answer`, `dialog-answer`, `invite-text`, `invite-cancel`, `join-start`, `join-project`, `join-cancel`,
-// `create`, `leave`), so the holder keeps every check (the digest, the device, the level, the folder, the relay); this side parses the line, shows the whole question in pi, and asks hereOnly (hereOnlyOpts) before
+// The boss's typed twins of the Straw Link operations the page alone could do (`/boss link confirms | confirm | asks | answer | invite <team> [unattended <device>] | invite show|cancel | join | join cancel | create | leave | trust | role |
+// remove | rotate`; the first of `link status` and `link decide` are bossopen.ts's). Like bosspaths.ts each posts to the route the page posts to (`link/confirm-answer`, `dialog-answer`, `invite`, `invite-text`, `invite-cancel`,
+// `join-start`, `join-project`, `join-cancel`, `create`, `leave`, `trust`, `role`, `remove`, `rotate`), so the holder keeps every check (the digest, the device, the level, the folder, the relay); this side parses the line, shows the whole question in pi, and asks hereOnly (hereOnlyOpts) before
 // anything that lets a teammate's tower run a call, answers for an unattended box, or changes who may command this computer. They are the boss's typed input only: boss.ts refuses them in a tower run or an ally run,
 // control.ts keeps a paired device's composer from typing them, and no tool reaches this module. Two things here are secrets: the relay's token goes from a masked screen (secretscreen.ts) into the request and nowhere else
 // (pi's `ctx.ui.input` echoes it), and an invite's text is drawn on a screen of its own, never as a notice. Whatever a teammate's device wrote (arguments, questions, labels) is shown with control and bidi characters as
@@ -25,15 +28,15 @@ type Share = "status" | "presence";
 
 export type LinkMore =
 	| { action: "confirms" } | { action: "confirm"; id: string; verdict: "allow" | "deny" } | { action: "asks" } | { action: "answer"; id: string; cancel: boolean; text: string }
-	| { action: "on" | "operate" | "operate-off" | "operate-on" } | { action: "invite-cancel" | "invite-show"; hash: string } | { action: "join-cancel" } | { action: "leave"; team: string; force: boolean }
+	| { action: "on" | "operate" | "operate-off" | "operate-on" } | { action: "invite-cancel" | "invite-show"; hash: string } | { action: "invite-make"; team: string; device?: string } | { action: "trust"; device: string; level: Level } | { action: "role"; team: string; device: string; role: "admin" | "member" } | { action: "remove"; team: string; device: string } | { action: "rotate"; team: string } | { action: "join-cancel" } | { action: "leave"; team: string; force: boolean }
 	| { action: "create"; relay: string; project: string; share?: Share; label?: string } | { action: "join"; source: string; project?: string; share?: Share; label?: string };
 
 /** A moment as the boss reads it on this computer: `2026-11-07 14:03`. */
 const stamp = (ms: number): string => { const d = new Date(ms), p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 
-const VERBS = ["on", "confirms", "confirm", "asks", "answer", "invite", "join", "create", "leave", "operate"];
+const VERBS = ["on", "confirms", "confirm", "asks", "answer", "invite", "join", "create", "leave", "operate", "trust", "role", "remove", "rotate"];
 /** What Tab completes for these (boss.ts adds them after the page's `link status` and `link decide`). */
-export const LINK_ARGUMENTS = Object.entries({ "link on": "Set up Straw Link on this computer, as the GUI page's Set up button does", "link confirms": "List the confirms teammates' towers wait on (the call's arguments in full)", "link confirm": "Allow or deny a teammate tower's call: link confirm <id> allow|deny", "link asks": "List the questions unattended devices forwarded to you", "link answer": "Answer a forwarded question: link answer <id> <choice number | text> (or --cancel)", "link invite show": "Show an open invite's text on this screen only: link invite show <hash>", "link invite cancel": "Cancel an open invite: link invite cancel <hash>", "link join": "Join a team: link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>]", "link join cancel": "Cancel the join in progress", "link create": "Create a team: link create <relay> <dir> [--share status|presence] [--label <name>] (asks for the relay's token privately)", "link leave": "Leave a team on this computer: link leave <team> [--force]", "link operate": "List the operate sessions this computer holds on unattended boxes", "link operate off": "End every operate session this computer holds, and keep operate off until link operate on", "link operate on": "Turn operate on again after link operate off", "link units": "List the units and mains the unattended boxes reported: link units [box]", "link stop": "Ask a box to stop one of its mains: link stop <box> <main | handle start> [--interrupt] [reason]" }).map(([value, description]) => ({ value, label: value, description }));
+export const LINK_ARGUMENTS = Object.entries({ "link on": "Set up Straw Link on this computer, as the GUI page's Set up button does", "link confirms": "List the confirms teammates' towers wait on (the call's arguments in full)", "link confirm": "Allow or deny a teammate tower's call: link confirm <id> allow|deny", "link asks": "List the questions unattended devices forwarded to you", "link answer": "Answer a forwarded question: link answer <id> <choice number | text> (or --cancel)", "link invite": "Make an invite and show its text on this screen only: link invite <team> [unattended <device id>]", "link invite show": "Show an open invite's text on this screen only: link invite show <hash>", "link invite cancel": "Cancel an open invite: link invite cancel <hash>", "link join": "Join a team: link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>]", "link join cancel": "Cancel the join in progress", "link create": "Create a team: link create <relay> <dir> [--share status|presence] [--label <name>] (asks for the relay's token privately)", "link leave": "Leave a team on this computer: link leave <team> [--force]", "link trust": "Set what a teammate's device may do from its tower: link trust <device> reply|forward|dispatch", "link role": "Make a device of a team an admin or a member: link role <team> <device> admin|member", "link remove": "Remove a device from a team (an admin's act): link remove <team> <device>", "link rotate": "Replace a team's key for every device (an admin's act): link rotate <team>", "link operate": "List the operate sessions this computer holds on unattended boxes", "link operate off": "End every operate session this computer holds, and keep operate off until link operate on", "link operate on": "Turn operate on again after link operate off", "link units": "List the units and mains the unattended boxes reported: link units [box]", "link stop": "Ask a box to stop one of its mains: link stop <box> <main | handle start> [--interrupt] [reason]" }).map(([value, description]) => ({ value, label: value, description }));
 
 /** The words of a typed line (a quoted run is one word), flags `--name value` or `--name=value` split off; undefined for a flag that is not allowed or has no value. */
 function split(text: string, allowed: readonly string[], bare: readonly string[] = []): { pos: string[]; flag: Record<string, string> } | undefined {
@@ -79,7 +82,14 @@ export function parseLinkMore(rest: string | undefined): LinkMore | "usage" | un
 		case "confirms": return p.pos.length === 1 ? { action: "confirms" } : "usage";
 		case "asks": return p.pos.length === 1 ? { action: "asks" } : "usage";
 		case "confirm": return p.pos.length === 3 && (b === "allow" || b === "deny") ? { action: "confirm", id: a!, verdict: b } : "usage";
-		case "invite": return p.pos.length === 3 && (a === "cancel" || a === "show") ? { action: a === "cancel" ? "invite-cancel" : "invite-show", hash: b! } : "usage";
+		case "invite":
+			if (p.pos.length === 3 && (a === "cancel" || a === "show")) return { action: a === "cancel" ? "invite-cancel" : "invite-show", hash: b! };
+			if (a === "cancel" || a === "show") return "usage";
+			return p.pos.length === 2 ? { action: "invite-make", team: a! } : p.pos.length === 4 && b === "unattended" ? { action: "invite-make", team: a!, device: p.pos[3]! } : "usage";
+		case "trust": return p.pos.length === 3 && (LEVELS as readonly string[]).includes(b!) ? { action: "trust", device: a!, level: b as Level } : "usage";
+		case "role": return p.pos.length === 4 && (p.pos[3] === "admin" || p.pos[3] === "member") ? { action: "role", team: a!, device: b!, role: p.pos[3] } : "usage";
+		case "remove": return p.pos.length === 3 ? { action: "remove", team: a!, device: b! } : "usage";
+		case "rotate": return p.pos.length === 2 ? { action: "rotate", team: a! } : "usage";
 		case "create": return p.pos.length === 3 ? { action: "create", relay: a!, project: b!, ...extra } : "usage";
 		default: return a === "cancel" ? (p.pos.length === 2 && !Object.keys(p.flag).length ? { action: "join-cancel" } : "usage") : p.pos.length === 2 ? { action: "join", source: a!, ...(p.flag.project ? { project: p.flag.project } : {}), ...extra } : "usage";
 	}
@@ -104,7 +114,7 @@ function readDialog(json: unknown): Dlg | undefined {
 
 const WORDS = {
 	en: {
-		usage: { on: "/boss link on", confirms: "/boss link confirms", confirm: "/boss link confirm <id> allow|deny", asks: "/boss link asks", answer: "/boss link answer <id> <choice number | text> | answer <id> (asks in pi) | answer <id> --cancel", invite: "/boss link invite show|cancel <hash>", join: "/boss link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>] | join cancel", create: "/boss link create <relay> <dir> [--share status|presence] [--label <name>]", leave: "/boss link leave <team> [--force]", operate: "/boss link operate [off|on]" } as Record<string, string>,
+		usage: { on: "/boss link on", confirms: "/boss link confirms", confirm: "/boss link confirm <id> allow|deny", asks: "/boss link asks", answer: "/boss link answer <id> <choice number | text> | answer <id> (asks in pi) | answer <id> --cancel", invite: "/boss link invite <team> [unattended <device id>] | invite show|cancel <hash>", join: "/boss link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>] | join cancel", create: "/boss link create <relay> <dir> [--share status|presence] [--label <name>]", leave: "/boss link leave <team> [--force]", operate: "/boss link operate [off|on]", trust: "/boss link trust <device> reply|forward|dispatch", role: "/boss link role <team> <device> admin|member", remove: "/boss link remove <team> <device>", rotate: "/boss link rotate <team>" } as Record<string, string>,
 		off: "Straw Link is not on in this server (turn it on with /boss link on)",
 		setup: "Setting up Straw Link: it takes a few seconds, then /boss link status shows it",
 		noScreen: "This needs the pi screen to ask you first",
@@ -155,6 +165,26 @@ const WORDS = {
 		invValid: (left: string) => `Valid for ${left}`,
 		invFooter: "Enter or Esc closes this screen. The text is a credential: it is shown here and nowhere else.",
 		joinCancelled: "Cancelled the join",
+		noDevice: (q: string, team: string) => `No device${team ? ` in team ${team}` : ""} is named or starts with "${q}" (a label, a short id, or four or more characters of its id)`,
+		manyDevices: (q: string, list: string, team: string) => `More than one device${team ? ` in ${team}` : ""} is named or starts with "${q}"; nothing was done. Name one by its short id:\n${list}`,
+		notSelf: "This is this computer: the page changes other devices only (leave a team with /boss link leave <team>)",
+		badDeviceId: "A device id is 26 characters (a to z, 2 to 7), the one in the unattended device's link/device.id",
+		inviteTitle: "Make an invite?",
+		inviteBody: (team: string, id: string, device: string) => `A new invite to the team ${team} (${id}). Its text is a credential: it is shown next on a private screen and nowhere else, and it lapses on its own. ${device ? `It is pinned to the unattended device ${device}: only that device can join with it.` : "Anyone who has the text can ask to join; the request waits for your approval."}`,
+		trustTitle: "Change this device's trust?",
+		trustBody: (name: string, short: string, from: string, to: string, help: string) => `${name} (${short}): from ${from} to ${to}, for every team this computer shares with it. ${help}`,
+		levelHelp: { reply: "reply: the allowed read-only tools run; anything else asks you here", forward: "forward: the same, but anything else asks that device's owner on their computer", dispatch: "dispatch: runs as a message from you would, under this computer's own guards" } as Record<string, string>,
+		trustSame: (name: string, level: string) => `${name} is already ${level}: nothing to change`,
+		trustDone: (name: string, level: string) => `Set the trust of ${name} to ${level}`,
+		roleTitle: "Change this device's role?",
+		roleBody: (name: string, short: string, team: string, admin: boolean) => (admin ? `${name} (${short}) becomes an admin of ${team}: it can remove devices, change roles and rotate the team key, as you can.` : `${name} (${short}) becomes a member of ${team}: it can no longer remove devices, change roles or rotate the key.`),
+		roleDone: (name: string, team: string, admin: boolean) => `${name} is now ${admin ? "an admin" : "a member"} of ${team}`,
+		removeTitle: "Remove this device?",
+		removeBody: (name: string, short: string, team: string, others: number) => `${name} (${short}) is removed from the team ${team}, signed by this computer. It can no longer read or send in the team, and its id is banned: it comes back only with new keys. The team key is replaced too: the old one is retired and a new team key is sealed to the ${others} other device${others === 1 ? "" : "s"} that stay, besides this computer.`,
+		removeDone: (name: string, team: string) => `Removed ${name} from ${team}`,
+		rotateTitle: "Rotate the team key?",
+		rotateBody: (team: string, others: number) => `Rotate the key of the team ${team}. The key is replaced for every device in it: the old key is retired, and a new one is sealed through the relay to each of the ${others} other device${others === 1 ? "" : "s"} (besides this computer). Nobody is removed and no role changes.`,
+		rotateDone: (team: string) => `Rotated the key of ${team}`,
 		leaveTitle: "Leave this team?",
 		leaveBody: (name: string, id: string, force: boolean) => `${name} (${id}): this computer forgets the team (its team file and config entry). The roster at the relay is untouched; an admin removes this device.${force ? " Leave even if this device is the team's only attended admin: nobody could remove a device or rotate the key." : ""}`,
 		leftTeam: (name: string) => `Left ${name}`,
@@ -183,7 +213,7 @@ const WORDS = {
 		asksWait: (n: number) => `${n} forwarded question${n === 1 ? "" : "s"} wait${n === 1 ? "s" : ""}: /boss link asks`,
 	},
 	"zh-TW": {
-		usage: { on: "/boss link on", confirms: "/boss link confirms", confirm: "/boss link confirm <id> allow|deny", asks: "/boss link asks", answer: "/boss link answer <id> <選項編號 | 文字> | answer <id>（在 pi 裡逐題問）| answer <id> --cancel", invite: "/boss link invite show|cancel <hash>", join: "/boss link join <邀請文字 | @檔案> [--project <資料夾>] [--share status|presence] [--label <名稱>] | join cancel", create: "/boss link create <中繼站> <資料夾> [--share status|presence] [--label <名稱>]", leave: "/boss link leave <團隊> [--force]", operate: "/boss link operate [off|on]" } as Record<string, string>,
+		usage: { on: "/boss link on", confirms: "/boss link confirms", confirm: "/boss link confirm <id> allow|deny", asks: "/boss link asks", answer: "/boss link answer <id> <選項編號 | 文字> | answer <id>（在 pi 裡逐題問）| answer <id> --cancel", invite: "/boss link invite <團隊> [unattended <裝置 id>] | invite show|cancel <hash>", join: "/boss link join <邀請文字 | @檔案> [--project <資料夾>] [--share status|presence] [--label <名稱>] | join cancel", create: "/boss link create <中繼站> <資料夾> [--share status|presence] [--label <名稱>]", leave: "/boss link leave <團隊> [--force]", operate: "/boss link operate [off|on]", trust: "/boss link trust <裝置> reply|forward|dispatch", role: "/boss link role <團隊> <裝置> admin|member", remove: "/boss link remove <團隊> <裝置>", rotate: "/boss link rotate <團隊>" } as Record<string, string>,
 		off: "這個伺服器沒有開 Straw Link（用 /boss link on 開啟）",
 		setup: "正在設定 Straw Link：要等幾秒，之後 /boss link status 會顯示",
 		noScreen: "這個動作需要 pi 畫面，才能先問你",
@@ -234,6 +264,26 @@ const WORDS = {
 		invValid: (left: string) => `還有效 ${left}`,
 		invFooter: "按 Enter 或 Esc 關閉這個畫面。這段文字是憑證：只在這裡顯示，不會出現在別處。",
 		joinCancelled: "已取消加入",
+		noDevice: (q: string, team: string) => `${team ? `團隊 ${team} 裡` : ""}沒有名為或以「${q}」開頭的裝置（名稱、短 id，或 id 的前四碼以上）`,
+		manyDevices: (q: string, list: string, team: string) => `${team ? `團隊 ${team} 裡` : ""}不只一個裝置名為或以「${q}」開頭，什麼都沒做。請用短 id 指明其中一個：\n${list}`,
+		notSelf: "這是這台電腦：頁面只改其他裝置（要離開團隊，用 /boss link leave <團隊>）",
+		badDeviceId: "裝置 id 是 26 個字元（a 到 z、2 到 7），就是無人值守裝置的 link/device.id 裡的那一串",
+		inviteTitle: "要建立邀請嗎？",
+		inviteBody: (team: string, id: string, device: string) => `為團隊 ${team}（${id}）建立新邀請。邀請文字是憑證：接著只會顯示在私密畫面，不會出現在別處，也會自己失效。${device ? `它綁定無人值守裝置 ${device}：只有那部裝置能用它加入。` : "拿到文字的人都能要求加入；要求會等你核准。"}`,
+		trustTitle: "要改變這部裝置的信任嗎？",
+		trustBody: (name: string, short: string, from: string, to: string, help: string) => `${name}（${short}）：從 ${from} 改為 ${to}，對這台電腦與它共有的每個團隊都生效。${help}`,
+		levelHelp: { reply: "reply：允許的唯讀工具會執行；其他的在這裡問你", forward: "forward：同上，但其他的會問那部裝置的主人，在他的電腦上", dispatch: "dispatch：照你本人送來的訊息執行，受這台電腦自己的防護限制" } as Record<string, string>,
+		trustSame: (name: string, level: string) => `${name} 已經是 ${level}：不用改`,
+		trustDone: (name: string, level: string) => `已把 ${name} 的信任設為 ${level}`,
+		roleTitle: "要改變這部裝置的角色嗎？",
+		roleBody: (name: string, short: string, team: string, admin: boolean) => (admin ? `${name}（${short}）將成為 ${team} 的管理員：它能像你一樣移除裝置、改變角色、輪替團隊金鑰。` : `${name}（${short}）將成為 ${team} 的成員：它不能再移除裝置、改變角色或輪替金鑰。`),
+		roleDone: (name: string, team: string, admin: boolean) => `${name} 現在是 ${team} 的${admin ? "管理員" : "成員"}`,
+		removeTitle: "要移除這部裝置嗎？",
+		removeBody: (name: string, short: string, team: string, others: number) => `${name}（${short}）會由這台電腦簽署，移出團隊 ${team}。它不能再讀或送團隊的訊息，它的 id 也被列入黑名單：要換新金鑰才能回來。團隊金鑰也會更換：舊金鑰作廢，新的團隊金鑰會封給留下來的另外 ${others} 部裝置（不含這台電腦）。`,
+		removeDone: (name: string, team: string) => `已把 ${name} 移出 ${team}`,
+		rotateTitle: "要輪替團隊金鑰嗎？",
+		rotateBody: (team: string, others: number) => `輪替團隊 ${team} 的金鑰。團隊裡每部裝置的金鑰都會更換：舊金鑰作廢，新金鑰會透過中繼站封給另外 ${others} 部裝置（不含這台電腦）。沒有人被移除，角色也不變。`,
+		rotateDone: (team: string) => `已輪替 ${team} 的團隊金鑰`,
 		leaveTitle: "要離開這個團隊嗎？",
 		leaveBody: (name: string, id: string, force: boolean) => `${name}（${id}）：這台電腦會忘掉這個團隊（它的團隊檔與設定項目）。中繼站上的名冊不變，要由管理員移除這台裝置。${force ? "即使這台裝置是團隊唯一有人值守的管理員也離開：之後沒有人能移除裝置或輪替金鑰。" : ""}`,
 		leftTeam: (name: string) => `已離開 ${name}`,
@@ -314,6 +364,8 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		if ("one" in found) return found.one;
 		tell(found.error === "none" ? t().none[kind](q) : t().many[kind](q, found.hits.map(show).join("\n")), "error");
 	};
+
+	const pickTeam = (view: LinkView, team: string) => pick(lookup(view.teams, team, (y) => [y.team, y.name], (y) => y.team), "team", team, (y) => `  ${plain(y.team).slice(0, FULL_ID)}  ${line(y.name)}`);
 
 	// ---- Confirms (G1) --------------------------------------------------------------------------------------------------------------------
 
@@ -428,19 +480,86 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		}
 		const reply = await post(got.r, "link/invite-text", { hash: i.hash }, 10_000), text = reply.body.text;
 		if (reply.status !== 200 || typeof text !== "string") return tell(refusal(reply), "error");
-		const left = typeof reply.body.expires === "number" ? reply.body.expires - Date.now() : 0;
-		const ui = s.ui!;
-		await here(() => showScreen(ui, { title: t().invTitle(line(i.teamName), line(i.forDevice.slice(0, 6))), lines: [text, "", t().invValid(t().left(Math.max(0, left)))], footer: t().invFooter }));
+		await drawInvite(text, reply.body.expires, i.teamName, i.forDevice);
+	}
+	/** An invite's text on the private screen (secretscreen.ts), until the boss closes it: the one place the text is drawn. */
+	async function drawInvite(text: string, expires: unknown, teamName: string, forDevice: string) {
+		const left = typeof expires === "number" ? expires - Date.now() : 0, ui = s.ui!;
+		await here(() => showScreen(ui, { title: t().invTitle(line(teamName), line(forDevice.slice(0, 6))), lines: [text, "", t().invValid(t().left(Math.max(0, left)))], footer: t().invFooter }));
+	}
+	/** `invite <team> [unattended <device>]`: the page's Invite and Invite an unattended device, after a confirm. The screen comes first (the text could not be shown otherwise), the confirm second, the invite last. */
+	async function makeInvite(team: string, device: string | undefined) {
+		if (!needPrivate()) return;
+		const forDevice = device?.trim().toLowerCase();
+		if (forDevice !== undefined && !idOk(forDevice)) return tell(t().badDeviceId, "error");
+		const got = await state();
+		if (!got) return;
+		const x = pickTeam(got.view, team);
+		if (!x) return;
+		if (!(await confirm(t().inviteTitle, t().inviteBody(line(x.name), x.team.slice(0, 6), forDevice ? line(forDevice) : ""), true))) return tell(t().declined);
+		const reply = await post(got.r, "link/invite", { team: x.team, ...(forDevice ? { forDevice } : {}) }, 30_000), text = reply.body.text;
+		if (reply.status !== 200 || typeof text !== "string") return tell(refusal(reply), "error");
+		await drawInvite(text, reply.body.expires, x.name, forDevice ?? "");
 	}
 	async function leave(team: string, force: boolean) {
 		if (!needScreen()) return;
 		const got = await state();
 		if (!got) return;
-		const x = pick(lookup(got.view.teams, team, (y) => [y.team, y.name], (y) => y.team), "team", team, (y) => `  ${plain(y.team).slice(0, FULL_ID)}  ${line(y.name)}`);
+		const x = pickTeam(got.view, team);
 		if (!x) return;
 		if (!(await confirm(t().leaveTitle, t().leaveBody(line(x.name), x.team.slice(0, 6), force), true))) return tell(t().notLeft);
 		const reply = await post(got.r, "link/leave", { team: x.team, force }, 30_000);
 		reply.status === 200 ? tell(t().leftTeam(line(x.name))) : tell(refusal(reply), "error");
+	}
+	/** The one device of `members` that `q` names (a label, a short id, an id, or four or more characters of the id); a device in several teams is one, and this computer is told as such. An error is told. */
+	function deviceOf(members: MemberView[], q: string, team = ""): MemberView | undefined {
+		const groups = new Map<string, MemberView[]>();
+		for (const m of members) groups.set(m.id, [...(groups.get(m.id) ?? []), m]);
+		const found = lookup([...groups.values()], q, (g) => g.flatMap((m) => [m.id, m.short, m.label]), (g) => g[0]!.id);
+		if ("one" in found) return found.one[0]!.self ? void tell(t().notSelf, "error") : found.one[0]!;
+		if (found.error === "none") return void tell(t().noDevice(q, line(team)), "error");
+		const ids = shownIds(found.hits.map((g) => g[0]!.id));
+		tell(t().manyDevices(q, found.hits.map((g, i) => `  ${ids[i]}  ${line(g[0]!.label)}`).join("\n"), line(team)), "error");
+	}
+	/** The page's state, the team `team` names, and (for a role or a remove) the device of that team `device` names, or an error told. */
+	async function inTeam(team: string, device?: string) {
+		if (!needScreen()) return;
+		const got = await state(), x = got && pickTeam(got.view, team), m = x && device !== undefined ? deviceOf(x.members, device, x.name) : undefined;
+		return got && x && (device === undefined || m) ? { r: got.r, x, m: m! } : undefined;
+	}
+	async function trust(device: string, level: Level) {
+		if (!needScreen()) return;
+		const got = await state(), m = got && deviceOf(got.view.teams.flatMap((y) => y.members), device);
+		if (!got || !m) return;
+		const name = line(m.label);
+		if (m.trust === level) return tell(t().trustSame(name, level));
+		if (!(await confirm(t().trustTitle, t().trustBody(name, line(m.short), m.trust, level, t().levelHelp[level]!), true))) return tell(t().declined);
+		const reply = await post(got.r, "link/trust", { device: m.id, level }, 30_000);
+		reply.status === 200 ? tell(t().trustDone(name, level)) : tell(refusal(reply), "error");
+	}
+	async function role(team: string, device: string, to: "admin" | "member") {
+		const got = await inTeam(team, device);
+		if (!got) return;
+		const name = line(got.m.label), where = line(got.x.name);
+		if (!(await confirm(t().roleTitle, t().roleBody(name, line(got.m.short), where, to === "admin"), true))) return tell(t().declined);
+		const reply = await post(got.r, "link/role", { team: got.x.team, device: got.m.id, role: to }, 60_000);
+		reply.status === 200 ? tell(t().roleDone(name, where, to === "admin")) : tell(refusal(reply), "error");
+	}
+	async function remove(team: string, device: string) {
+		const got = await inTeam(team, device);
+		if (!got) return;
+		const name = line(got.m.label), where = line(got.x.name), stay = got.x.members.filter((y) => !y.self && y.id !== got.m.id).length;
+		if (!(await confirm(t().removeTitle, t().removeBody(name, line(got.m.short), where, stay), true))) return tell(t().declined);
+		const reply = await post(got.r, "link/remove", { team: got.x.team, device: got.m.id }, 60_000);
+		reply.status === 200 ? tell(t().removeDone(name, where)) : tell(refusal(reply), "error");
+	}
+	async function rotate(team: string) {
+		const got = await inTeam(team);
+		if (!got) return;
+		const where = line(got.x.name);
+		if (!(await confirm(t().rotateTitle, t().rotateBody(where, got.x.members.filter((y) => !y.self).length), true))) return tell(t().declined);
+		const reply = await post(got.r, "link/rotate", { team: got.x.team }, 60_000);
+		reply.status === 200 ? tell(t().rotateDone(where)) : tell(refusal(reply), "error");
 	}
 	async function create(p: Extract<LinkMore, { action: "create" }>, cwd: string) {
 		if (!needPrivate()) return;
@@ -516,6 +635,11 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 				case "answer": return answer(parsed.id, parsed.cancel, parsed.text);
 				case "invite-cancel": return invite(parsed.hash, false);
 				case "invite-show": return invite(parsed.hash, true);
+				case "invite-make": return makeInvite(parsed.team, parsed.device);
+				case "trust": return trust(parsed.device, parsed.level);
+				case "role": return role(parsed.team, parsed.device, parsed.role);
+				case "remove": return remove(parsed.team, parsed.device);
+				case "rotate": return rotate(parsed.team);
 				case "join-cancel": {
 					const reply = await post(await record(), "link/join-cancel", {}, 10_000);
 					return reply.status === 200 ? tell(t().joinCancelled) : tell(refusal(reply), "error");

@@ -112,8 +112,13 @@ The GUI's Memory panel does the same as `/boss memory`. See [Tower memory](/pi-s
 | `/boss link decide <id> approve\|refuse` | Approve or refuse a join request. Approving an attended device asks you to pick the safety words the new computer shows. |
 | `/boss link create <relay> <dir> [--share status\|presence] [--label x]` | Create a team for a project folder. The relay's token is asked on a masked screen. |
 | `/boss link join <invite \| @file> [--project <dir>] [--share …] [--label x]` | Join a team; prints the four safety words for the inviter. |
+| `/boss link invite <team> [unattended <device id>]` | Make an invite, as the page's Invite and Invite an unattended device do, after a confirm. Its text is drawn on a screen of its own, never in the chat. |
 | `/boss link invite show\|cancel <hash>`, `link join cancel` | Show an open invite on a screen of its own, cancel it, or cancel the join in progress. |
 | `/boss link leave <team> [--force]` | Leave a team, after a confirm. |
+| `/boss link trust <device> reply\|forward\|dispatch` | Set what a message from a teammate's device may do, after a confirm that says what each level lets it do. |
+| `/boss link role <team> <device> admin\|member` | Make a device of a team an admin or a member (an admin's act), after a confirm. |
+| `/boss link remove <team> <device>` | Remove a device from a team (an admin's act). The confirm says the device can no longer read or send and the team key is replaced for the devices that stay. |
+| `/boss link rotate <team>` | Replace the team's key for every device (an admin's act), after a confirm. |
 | `/boss link confirms`, `link confirm <id> allow\|deny` | The confirms teammates' towers wait on, and their answer. |
 | `/boss link asks`, `link answer <id> <number \| text>` | The questions unattended devices forwarded, and their answer. |
 | `/boss link units [box]`, `link stop <box> <main \| handle start> [--interrupt] [reason]` | The units an unattended box reported, and asking the box to stop a main. |

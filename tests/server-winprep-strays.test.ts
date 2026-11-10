@@ -146,9 +146,9 @@ test("the server's PowerShell script takes the other explicit grants off the fol
 	const lines = ACL_SCRIPT.split("\n");
 	const protect = lines.findIndex((l) => l.includes("/inheritance:r")), strays = lines.findIndex((l) => l.includes("$strays = ")), remove = lines.findIndex((l) => l.includes("/remove:g")), reset = lines.findIndex((l) => l.includes("/reset /T"));
 	assert.ok(protect >= 0 && protect < strays && strays <= remove && remove < reset, `${protect} ${strays} ${remove} ${reset}`);
-	assert.match(lines[strays]!, /GetAccessRules\(\$true, \$false, \[Security\.Principal\.SecurityIdentifier\]\)/, "explicit rules, as SIDs");
-	assert.match(lines[strays]!, /\$_ -ne \$sid -and \$_ -ne 'S-1-5-18'/, "all but the owner and SYSTEM");
-	assert.match(lines[remove]!, /'\*' \+ \$_/, "by SID with the * prefix, so a localized group name cannot matter");
+	assert.match(lines[strays + 1]!, /GetAccessRules\(\$true, \$false, \[Security\.Principal\.SecurityIdentifier\]\)/, "explicit rules, as SIDs");
+	assert.match(lines[strays + 1]!, /\$who -ne \$sid -and \$who -ne 'S-1-5-18'/, "all but the owner and SYSTEM");
+	assert.match(lines[remove - 1]!, /'\*' \+ \$stray/, "by SID with the * prefix, so a localized group name cannot matter");
 	assert.match(lines[remove]!, /\$LASTEXITCODE -ne 0/);
 });
 
@@ -188,6 +188,6 @@ test("the folder replaced by another after the last read-back is refused", () =>
 });
 
 test("the server's PowerShell script lists only Allow rules, as the Node path does", () => {
-	const line = ACL_SCRIPT.split("\n").find((l) => l.includes("$strays = "))!;
-	assert.match(line, /Where-Object \{ \$_\.AccessControlType -eq 'Allow' \}/);
+	const line = ACL_SCRIPT.split("\n").find((l) => l.includes("GetAccessRules"))!;
+	assert.match(line, /if \(\$rule\.AccessControlType -eq 'Allow'\)/);
 });

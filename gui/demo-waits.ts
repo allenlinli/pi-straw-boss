@@ -29,6 +29,9 @@ const T: Record<Lang, Record<string, string>> = {
 		goneDo: "Decide whether the branch may be merged without its author; the tower will merge it for you.",
 		goneAfter: "The tower merges the branch, or closes it and tells the team.",
 		legacy: "Roll the ledger fix out tonight, or wait for Friday?",
+		headHappened: "Three towers asked the head tower for the same migration window tonight, and it cannot give it to all of them.",
+		headDo: "Pick which workspace gets tonight's migration window.",
+		headAfter: "The head tower tells the other two towers when their turn comes.",
 		pressedHappened: "The deploy key for the docs site was rotated and the old one stopped working.",
 		pressedDo: "Paste the new deploy key into the docs repository settings.",
 		pressedAfter: "The docs main redeploys the site.",
@@ -59,6 +62,9 @@ const T: Record<Lang, Record<string, string>> = {
 		goneDo: "決定這個分支能不能在作者離開後合併；塔台會替你合併。",
 		goneAfter: "塔台會合併分支，或關掉它並告訴團隊。",
 		legacy: "帳本修正今晚上線，還是等到週五？",
+		headHappened: "三個塔台今晚都向主塔台要同一段遷移時間，沒辦法全給。",
+		headDo: "決定今晚的遷移時間給哪個工作區。",
+		headAfter: "主塔台會告訴另外兩個塔台輪到它們的時間。",
 		pressedHappened: "文件網站的部署金鑰已經換過，舊的金鑰失效了。",
 		pressedDo: "把新的部署金鑰貼到文件儲存庫的設定頁。",
 		pressedAfter: "文件的 main 會重新部署網站。",
@@ -90,6 +96,13 @@ export function cardWaits(now: number): BossWait[] {
 		wait("W9", 30, card({ type: "action", happened: t.pressedHappened, do: t.pressedDo, after: t.pressedAfter, from: FROM }), { answered: at(2), press: done }),
 		wait("W10", 32, card({ type: "choice", happened: t.choHappened, do: t.choDo, options: [{ label: t.choA, then: t.choAThen }, { label: t.choB, then: t.choBThen }], from: FROM }), { answered: at(3), press: picked }),
 	];
+}
+
+/** The head tower's own card (`?waits=cards&head=<state>`): an action card on the head's memory, so the card says the head tower where a workspace's says the tower (docs/specs/2026-11-10-wait-cards-tui.md, Q3). */
+export function headCardWait(now: number): BossWait {
+	const lang: Lang = getLocale() === "zh-TW" ? "zh-TW" : "en", t = T[lang];
+	const card: WaitCardView = { lang, type: "action", happened: t.headHappened, do: t.headDo, after: t.headAfter, from: FROM };
+	return { id: "H1", text: card.do, at: new Date(now - 9 * MIN).toISOString(), card };
 }
 
 /**

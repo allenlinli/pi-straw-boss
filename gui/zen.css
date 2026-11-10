@@ -461,23 +461,18 @@
 /* The head's history (zenhead.ts quietForwards): a forward row reads as one quiet line, not as an action card's name. */
 [data-view="zen"] .zen-log details.act.quiet > summary .sum { color: var(--zen-ash); font-style: italic; }
 [data-view="zen"] .zen-hl { text-wrap: pretty; line-break: strict; } /* a clamped Chinese line does not end on one orphan character (as ZL-F001 did for the mindfulness line) */
-/* A wait card in Zen's skin (waitcard.ts, docs/specs/2026-11-07-wait-cards.md): ink on the dark ground, the tag in clay (the seal's colour is never a text colour, Z-D15), the buttons the card's text buttons with the primary outlined in the seal's colour. */
+/* A wait card in Zen's skin (waitcard.ts, docs/specs/2026-11-10-wait-cards-tui.md): the card is the question panel, so its head, rows, Send, and status line take the `.zen-card .ask-*` rules above; this is what a card has beyond a question: the tag in clay (the seal's colour is never a text colour, Z-D15), the labelled parts, the URL and command blocks, and the quiet text buttons. */
 [data-view="zen"] .wait-card { gap: 10px; color: var(--zen-paper); font-family: var(--serif); text-align: left; }
 [data-view="zen"] .wait-card .wc-tag { color: var(--zen-clay); font: 400 0.85rem var(--serif); letter-spacing: 0.18em; }
-[data-view="zen"] .wait-card :is(.wc-raised, .wc-label, .wc-norun, .wc-copied, .wc-more, .wc-opt small) { color: var(--zen-ash); font-family: var(--serif); letter-spacing: 0.04em; }
+[data-view="zen"] .wait-card :is(.wc-raised, .wc-label, .wc-norun, .wc-copied, .wc-more, .ask-opt small) { color: var(--zen-ash); font-family: var(--serif); letter-spacing: 0.04em; }
 [data-view="zen"] .wait-card .wc-cmd { border-color: var(--zen-line); background: var(--zen-sunken); color: var(--zen-paper); }
-[data-view="zen"] .wait-card .wc-state { color: var(--zen-ash); }
-[data-view="zen"] .wait-card[data-pressed="true"] .wc-state { color: var(--zen-moss); }
-[data-view="zen"] .wait-card[data-step="2"] .wc-state { color: var(--zen-paper); }
-[data-view="zen"] .wait-card[data-phase="stale"] .wc-state { color: var(--zen-clay); }
-[data-view="zen"] .wait-card .pair-btn:disabled { cursor: default; color: var(--zen-ash); background: transparent; border: 1px dashed var(--zen-line); }
-[data-view="zen"] .wait-card .wc-opt.wc-picked:disabled { border: 1px solid var(--zen-seal); color: var(--zen-paper); }
-[data-view="zen"] .wait-card .wc-fail { color: var(--zen-clay); }
-[data-view="zen"] .wait-card .wc-skip-box { border-color: var(--zen-line); }
-[data-view="zen"] .wait-card .pair-btn { text-transform: none; min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid var(--zen-line); border-radius: 22px; background: transparent; color: var(--zen-paper); font: 400 1rem var(--serif); letter-spacing: 0.12em; text-decoration: none; }
-[data-view="zen"] .wait-card .pair-btn:hover:not(:disabled) { background: var(--zen-sunken); }
-[data-view="zen"] .wait-card .wc-primary { border-color: var(--zen-seal); }
-[data-view="zen"] .wait-card .wc-opt.wc-picked { border-color: var(--zen-seal); }
+[data-view="zen"] .wait-card .ask-note { color: var(--zen-ash); } [data-view="zen"] .wait-card[data-pressed="true"] .ask-note { color: var(--zen-moss); } [data-view="zen"] .wait-card[data-step="2"] .ask-note { color: var(--zen-paper); } [data-view="zen"] .wait-card[data-phase="stale"] .ask-note, [data-view="zen"] .wait-card .ask-note[data-tone="error"] { color: var(--zen-clay); }
+[data-view="zen"] .wait-card :is(.ask-opt, .ask-send):disabled { opacity: 1; cursor: default; color: var(--zen-ash); background: transparent; border: 0; } /* off: quiet, in ash, at full strength (the panel's 45% would drop its contrast) */
+[data-view="zen"] .wait-card .ask-opt:disabled[aria-checked="true"] { border: 1px solid var(--zen-seal); color: var(--zen-paper); }
+[data-view="zen"] .wait-card :is(.ask-opt, .ask-send, .cmp-link, .pair-btn) { min-height: 44px; min-width: 44px; }
+[data-view="zen"] .wait-card :is(.ask-opts, .ask-acts) { gap: 8px; } /* after `.zen-card .ask-opts` (2px): a card's rows and its Send are 8 px apart, as on a phone in Standard */
+[data-view="zen"] .wait-card :is(.wc-open, .wc-copy) { text-transform: none; padding: 0 16px; border: 1px solid var(--zen-line); border-radius: 22px; background: transparent; color: var(--zen-paper); font: 400 1rem var(--serif); letter-spacing: 0.12em; text-decoration: none; }
+[data-view="zen"] .wait-card :is(.wc-open, .wc-copy):hover { background: var(--zen-sunken); }
 [data-view="zen"] .wait-card .pair-btn:focus-visible { outline: none; border-color: var(--zen-seal); }
 
 /* Link cards (gui/zendecide.ts): Allow and Deny, Confirm and Reject, and a pair request's number. The panel is a wait panel (its buttons are the card's text buttons above), centred; the tool's arguments are dim monospace type with no box or frame; the number is the head strip's hairline field. */

@@ -74,7 +74,7 @@ test("a snapshot drawn while the panel's chunk loads is not overwritten by the o
 	assert.equal(box.find((el) => el.tag === "textarea").length, 0);
 });
 
-test("the wait's row on the card mounts the wait card: the reply fold unfolds the answer box that tells the tower, Skip's second tap posts the decline press by the wait's id, and the row has no link to the comms", async () => {
+test("the wait's row on the card mounts the wait card: picking Reply shows the answer box that tells the tower, Skip (picked, then Send) posts the decline press by the wait's id, and the row has no link to the comms", async () => {
 	const sent: { path: string; body: Record<string, unknown> }[] = [];
 	Object.assign(globalThis.document, { querySelector: () => ({ content: "CSRF" }) });
 	Object.assign(globalThis, { fetch: async (path: string, init: { body: string }) => (sent.push({ path, body: JSON.parse(init.body) }), { ok: true, status: 200, json: async () => (path.endsWith("/memory") ? { rev: 5, proposals: [], entries: [] } : { accepted: true, woke: true }) }) });
@@ -82,17 +82,17 @@ test("the wait's row on the card mounts the wait card: the reply fold unfolds th
 	fillNotices(box as unknown as HTMLElement, "wA", service([FRESH]), "sb-tower-wa");
 	await new Promise((done) => setTimeout(done, 50)); // the card loads with the first wait row
 	(box.find((el) => el.classes.has("wc-fold"))[0] as unknown as { click(): void }).click();
-	const by = (label: string) => box.find((el) => el.tag === "button" && el.textContent === label)[0] as unknown as { onclick(): void; click(): void; hidden: boolean };
+	const by = (label: string) => box.find((el) => el.tag === "button" && el.textContent === label)[0] as unknown as { onclick(): void; click(): void; hidden: boolean; disabled: boolean };
 	const labels = box.find((el) => el.tag === "button").map((b) => b.textContent);
 	for (const want of [m.wc_b_restate(), m.wc_b_reply(), m.wc_b_skip(), m.send()]) assert.ok(labels.includes(want), `the unfolded row has ${want}`);
-	assert.equal(by(m.send()).hidden, true, "Send waits for the reply fold");
+	assert.equal(by(m.send()).disabled, true, "Send waits for a pick");
 	by(m.wc_b_skip()).click();
-	assert.equal(sent.length, 0, "the first tap of Skip sends nothing");
-	by(m.wc_skip_yes()).click();
+	assert.equal(sent.length, 0, "picking Skip sends nothing");
+	by(m.send()).click();
 	await new Promise((done) => setTimeout(done, 5));
 	assert.deepEqual(sent, [{ path: "api/tower/wA/memory", body: { op: "press", id: "W2", act: "decline" } }]);
 	by(m.wc_b_reply()).click();
-	const text = box.find((el) => el.tag === "textarea")[0]!;
+	const text = box.find((el) => el.tag === "textarea" && el.classes.has("wait-box"))[0]!;
 	text.value = "Yes, deploy";
 	text.bubble("keydown", { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 });
 	await new Promise((done) => setTimeout(done, 5));
@@ -112,19 +112,20 @@ const rowRig = async (ws: string, key: string) => {
 	await new Promise((done) => setTimeout(done, 50));
 	const enter = (el: El) => el.bubble("keydown", { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 });
 	(box.find((el) => el.classes.has("wc-fold"))[0] as unknown as { click(): void }).click();
-	return { sent, box, draw, enter, handle: box.find((el) => el.tag === "button" && el.textContent === m.wc_b_reply())[0]!, text: box.find((el) => el.tag === "textarea")[0]!, form: box.find((el) => el.tag === "form")[0]! };
+	return { sent, box, draw, enter, handle: box.find((el) => el.tag === "button" && el.textContent === m.wc_b_reply())[0]!, text: box.find((el) => el.tag === "textarea" && el.classes.has("wait-box"))[0]! };
 };
 
-test("once the tower took the words, the row clears and folds its box, so a second Enter sends nothing", async () => {
+test("once the tower took the words, the row clears and unpicks Reply, so a second Enter sends nothing", async () => {
 	const r = await rowRig("wB", "sb-tower-wb");
-	(r.handle as unknown as { onclick(): void }).onclick();
+	(r.handle as unknown as { click(): void }).click();
+	assert.equal(r.text.hidden, false, "the box shows while Reply is picked");
 	r.text.value = "Yes, deploy";
 	r.enter(r.text);
 	await new Promise((done) => setTimeout(done, 5));
 	assert.equal(r.sent.length, 1);
 	assert.equal(r.text.value, "", "the sent words are gone from the box");
-	assert.equal(r.form.hidden, true, "and the box is folded");
-	assert.equal(r.handle.hidden, false, "Handle is back");
+	assert.equal(r.text.hidden, true, "and the box is folded");
+	assert.equal(r.handle.getAttribute("aria-checked"), "false", "Reply is unpicked");
 	r.draw(service([{ ...FRESH, answered: iso(NOW) }])); // the next snapshot: answered
 	r.enter(r.text);
 	await new Promise((done) => setTimeout(done, 5));
@@ -133,11 +134,11 @@ test("once the tower took the words, the row clears and folds its box, so a seco
 
 test("a redraw of the row (its age changed) keeps the focus in the box being typed in", async () => {
 	const r = await rowRig("wC", "sb-tower-wc");
-	(r.handle as unknown as { onclick(): void }).onclick();
+	(r.handle as unknown as { click(): void }).click();
 	r.text.value = "Yes, deploy";
 	r.text.focus();
 	r.draw(service([{ ...FRESH, at: iso(NOW - 3 * HOUR) }]));
-	assert.equal(r.box.find((el) => el.tag === "textarea")[0], r.text, "the same box");
+	assert.equal(r.box.find((el) => el.tag === "textarea" && el.classes.has("wait-box"))[0], r.text, "the same box");
 	assert.equal(document.activeElement, r.text, "still focused");
 });
 

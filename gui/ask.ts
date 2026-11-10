@@ -1,6 +1,6 @@
 import type { Ask, Pending } from "../src/ask.ts";
 import type { Answerable, Reply, Then } from "../src/owners.ts";
-import { type Group, wire } from "./askkeys.ts";
+import { actions, choices, type Group, mark, option, question, say, sendButton, statusLine, wire } from "./askview.ts";
 import { h } from "./dom.ts";
 import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
@@ -19,9 +19,7 @@ export type AnswerPost = (action: "answer", body: Record<string, unknown>) => Pr
 type Pick = { choice?: number; answers?: Reply[] };
 const how = (a: Ask) => (a.multiple ? m.ask_several() : a.freeform && a.options.length ? m.ask_own_words() : "");
 /** One question, read-only: its header tag, the question, its context, its options, and (in a list of several) how it is answered. */
-/** A question longer than this many characters is marked `data-long`, so a view that sets questions as titles (Zen) can set it as text instead. */
-const LONG_Q = 90;
-const block = (a: Ask, list: boolean) => h("div", { class: "ask-one" }, a.header && h("b", { class: "ask-head" }, a.header), h("p", { class: "ask-q", ...(a.question.length > LONG_Q ? { "data-long": "" } : {}) }, a.question), a.context && h("div", { class: "ask-ctx" }, a.context),
+const block = (a: Ask, list: boolean) => h("div", { class: "ask-one" }, a.header && h("b", { class: "ask-head" }, a.header), question(a.question), a.context && h("div", { class: "ask-ctx" }, a.context),
 	a.options.length > 0 && h("ol", { class: "ask-opts", "aria-label": m.options() }, ...a.options.map((o) => h("li", { class: "ask-opt" }, h("b", null, o.title), o.description && h("small", null, o.description)))), list && how(a) && h("small", { class: "ask-how" }, how(a)));
 /** C0 and C1 controls but tab and newline, and Unicode format characters (bidi overrides, zero-width marks), drawn as U+FFFD: the text is shown as text, and the digest covers the raw one. */
 export const visible = (s: string) => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}]/gu, "\ufffd");
@@ -75,7 +73,6 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 	// `cur` is the panel on show, drawn for `shown`; `kept` is the newest one that answers, which comes back as it was when its dialog does.
 	let shown: Pending | undefined, cur: Panel | undefined, kept: Panel | undefined, ready = false, why: string | undefined, busy = false, leave: ReturnType<typeof setTimeout> | undefined;
 	for (const type of ["focusin", "pointerdown"]) document.addEventListener(type, (e) => cur && !cur.el.contains(e.target as Node) && (cur.lost = undefined)); // the user went elsewhere
-	const say = (note: HTMLElement, tone: string, text: string, ...kids: HTMLElement[]) => ((note.dataset.tone = tone), note.replaceChildren(text, ...kids));
 	const draw = () => {
 		if (!cur) return;
 		const had = document.activeElement as HTMLButtonElement | null, idle = !had || had === document.body;
@@ -105,15 +102,10 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		x.note.scrollIntoView?.({ block: "nearest" }); // a long panel scrolls: its outcome must be read
 		if (accepted && r?.body.outcome === "accepted") setTimeout(() => accepted(Boolean(then) && !instead), then && !instead ? 0 : 1200); // an alert's dialog closes once its answer landed, after its outcome shows; at once when it sent the user to a terminal
 	}
-	const option = (role: string, title: string, small: (string | undefined)[], on: () => void, n?: number) => {
-		const b = h("button", { type: "button", class: "ask-opt", role, "aria-checked": "false" }, h("b", n ? { "data-n": String(n) } : null, title), ...small.filter(Boolean).map((s) => h("small", null, s!)));
-		b.onclick = on;
-		return b;
-	};
 	/** A select: its title as written, one choice per row with where it acts, Copy command (the browser's clipboard; it answers nothing). */
 	function select(x: Panel, a: Answerable) {
 		let chosen: number | undefined;
-		const opts = offered(a).map((c) => option("radio", visible(c.label), [c.note && visible(c.note)], () => ((chosen = c.i), opts.forEach((o, k) => o.setAttribute("aria-checked", String(offered(a)[k]!.i === c.i))), draw()), c.i + 1)); // the terminal's numbers
+		const opts = offered(a).map((c) => option("radio", visible(c.label), [c.note && visible(c.note)], () => ((chosen = c.i), opts.forEach((o, k) => mark(o, offered(a)[k]!.i === c.i)), draw()), c.i + 1)); // the terminal's numbers
 		const copy = a.select?.copy !== undefined && h("button", { type: "button", class: "cmp-link" }, m.copy_command());
 		if (copy) (copy.disabled = !navigator.clipboard), (copy.onclick = () => void navigator.clipboard.writeText(a.select!.copy!).then(() => say(x.note, "ok", m.copied()), () => say(x.note, "error", m.clipboard_refused())));
 		const refused = (c: { hereOnly?: true; next?: string }) => (remoteNow() && c.hereOnly === true) || (onBox() && c.next === "pane"); // on a box's unit the box refuses what only this computer may give, and an answer that opens a pane (decisions 7 and 8)
@@ -125,7 +117,7 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		x.pick = () => (chosen === undefined ? undefined : { choice: chosen });
 		x.first = wire(x.el, [{ opts, multiple: false, answered: () => chosen !== undefined }], () => x.send);
 		x.controls = usable;
-		return [h("pre", { class: "ask-title" }, visible(a.select!.title)), h("div", { class: "ask-opts", role: "radiogroup", "aria-label": m.choices() }, ...opts), ...(why ? [why] : []), h("div", { class: "ask-acts" }, x.send!, x.cancel, copy)];
+		return [h("pre", { class: "ask-title" }, visible(a.select!.title)), choices("radiogroup", m.choices(), ...opts), ...(why ? [why] : []), actions(x.send, x.cancel, copy)];
 	}
 	/** A questionnaire: per question its options (one, or several), its own words, and a note; it goes when every question has an answer. */
 	function questions(x: Panel, a: Answerable) {
@@ -135,29 +127,29 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 			const opts = q.options.map((o, k) => option(role, o.title, [o.description, o.preview && m.has_preview()], () => {
 				if (!q.multiple) (s.picks.clear(), (s.text.value = ""));
 				s.picks.has(k) ? s.picks.delete(k) : s.picks.add(k);
-				opts.forEach((b, n) => b.setAttribute("aria-checked", String(s.picks.has(n))));
+				opts.forEach((b, n) => mark(b, s.picks.has(n)));
 				draw();
 			}));
-			s.text.oninput = () => (q.multiple || (s.picks.clear(), opts.forEach((b) => b.setAttribute("aria-checked", "false"))), draw());
+			s.text.oninput = () => (q.multiple || (s.picks.clear(), opts.forEach((b) => mark(b, false))), draw());
 			x.controls.push(...opts, s.text, s.note);
 			groups.push({ opts, multiple: Boolean(q.multiple), own: s.text, note: s.note, answered: () => s.picks.size > 0 || s.text.value.trim() !== "" });
-			return h("div", { class: "ask-one" }, q.header && h("b", { class: "ask-head" }, q.header), h("p", { class: "ask-q", ...(q.question.length > LONG_Q ? { "data-long": "" } : {}) }, q.question), h("div", { class: "ask-opts", role: q.multiple ? "group" : "radiogroup", "aria-label": m.options() }, ...opts), s.text, s.note);
+			return h("div", { class: "ask-one" }, q.header && h("b", { class: "ask-head" }, q.header), question(q.question), choices(q.multiple ? "group" : "radiogroup", m.options(), ...opts), s.text, s.note);
 		});
 		x.pick = () => (state.every((s) => s.picks.size || s.text.value.trim()) ? { answers: state.map((s) => replyOf(s.picks, s.text.value, s.note.value)) } : undefined);
 		x.first = wire(x.el, groups, () => x.send);
-		return [...blocks, h("div", { class: "ask-acts" }, x.send!, x.cancel)];
+		return [...blocks, actions(x.send, x.cancel)];
 	}
 	function build(p: Pending): Panel {
 		const asks = p.asks ?? (p.ask ? [p.ask] : []), list = asks.length > 1, a = p.answer;
-		const x: Panel = { copy: a?.select?.copy, key: keyOf(p), el: h("section", { class: "ask" }), note: h("p", { class: "ask-note", role: "status", "aria-live": "polite" }), controls: [], pick: () => undefined, done: false, sending: false };
-		if (a) (x.send = h("button", { type: "button", class: "ask-send" }, m.send_answer())).onclick = () => void (x.pick() && answer(x, bodyOf(a, x.pick()!, crypto.randomUUID())));
+		const x: Panel = { copy: a?.select?.copy, key: keyOf(p), el: h("section", { class: "ask" }), note: statusLine(), controls: [], pick: () => undefined, done: false, sending: false };
+		if (a) (x.send = sendButton()).onclick = () => void (x.pick() && answer(x, bodyOf(a, x.pick()!, crypto.randomUUID())));
 		const noSecret = p.tool === "secret_drop"; // never an answerable secret, on any page, whatever it was sent (SB-F001): it gets no Cancel to press either, not even a detached one
 		if (a && !noSecret && cancellable(a, remoteNow())) (x.cancel = h("button", { type: "button", class: "ask-cancel" }, m.cancel())).onclick = () => void answer(x, cancelOf(a, crypto.randomUUID())); // no pick needed: it ends the dialog the way Escape does in the terminal, the owner's own cancelled result
 		const term = h("p", { class: "ask-term" }, p.why && asks.length ? p.why : `${list ? m.answer_them() : m.answer_it()} ${list || !asks[0] ? "" : how(asks[0])}`.trim());
 		const show = terminal && p.tool !== "secret_drop" && h("button", { type: "button", class: "cmp-link" }, terminalLabel());
 		if (show) show.onclick = terminal.show;
 		const during = p.answer?.twin && p.tool && p.tool !== "dialog" ? [h("p", { class: "ask-why" }, m.opened_during({ tool: p.tool }))] : []; // a dialog bound to the one call in flight may be unrelated to it
-		x.el.append(...during, ...(a && !noSecret ? (a.select ? select(x, a) : questions(x, a)) : [...(asks.length ? asks.map((y) => block(y, list)) : [h("p", { class: "ask-why" }, noSecret ? (remoteNow() ? m.secret_remote() : m.secret_terminal()) : (p.why ?? m.waits_dialog()))]), h("div", { class: "ask-acts" }, noSecret ? h("p", { class: "ask-term" }, m.answer_it()) : term, show)]), x.note);
+		x.el.append(...during, ...(a && !noSecret ? (a.select ? select(x, a) : questions(x, a)) : [...(asks.length ? asks.map((y) => block(y, list)) : [h("p", { class: "ask-why" }, noSecret ? (remoteNow() ? m.secret_remote() : m.secret_terminal()) : (p.why ?? m.waits_dialog()))]), actions(noSecret ? h("p", { class: "ask-term" }, m.answer_it()) : term, show)]), x.note);
 		if (x.cancel) x.controls.push(x.cancel); // draw() enables it with the rest
 		return x;
 	}

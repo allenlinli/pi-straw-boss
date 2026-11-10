@@ -114,6 +114,30 @@ test("the words the boss named: the map card says 管家 and a base with no towe
 	assert.equal(m.tower_name({ label: "A" }), "A 管家");
 });
 
+test("a wait card names the tower it is about (Q3): a head card says 主塔台 in Standard and 鴉閣 in Raven, a workspace's says 塔台 and 管家, and no Raven wait word says 塔台", () => {
+	const TWINS = ["wc_tag_legacy", "wc_raised_self", "wc_p_words", "wc_b_restate", "wc_b_reply", "wc_skip_tells", "wc_skip_tells_tower", "wc_pressed_restate", "wc_told_both", "wc_told_tower", "wc_told_gone", "wc_told_failed", "wc_ended", "wc_ended_plain", "zen_wait_placeholder"] as const;
+	for (const id of TWINS) assert.ok(`${id}_head` in zh, `${id} has its head twin`);
+	assert.equal(zh["wc_b_reply_head" as SentenceId], "回覆主塔台");
+	standard();
+	for (const id of TWINS) {
+		assert.ok(render(`${id}_head` as SentenceId).includes("主塔台"), `${id}_head says 主塔台 in Standard`);
+		assert.ok(!render(id as SentenceId).includes("主塔台"), `${id} (a workspace's tower) never says the head`);
+		assert.ok(render(id as SentenceId).includes("塔台"), `${id} says 塔台`);
+		assert.deepEqual(holes(zh[`${id}_head` as SentenceId]), holes(zh[id as SentenceId]), `${id}_head takes the inputs its base takes`);
+	}
+	raven();
+	for (const id of TWINS) {
+		assert.ok(render(`${id}_head` as SentenceId).includes("鴉閣"), `${id}_head says 鴉閣 in Raven`);
+		assert.ok(render(id as SentenceId).includes("管家"), `${id} says 管家 in Raven`);
+		for (const name of [id, `${id}_head`]) assert.ok(!render(name as SentenceId).includes("塔台"), `${name} says no 塔台 in Raven`);
+	}
+	assert.equal(m.wc_b_reply_head(), "回覆鴉閣");
+	assert.equal(m.wc_ended_head({ outcome: "‹outcome›" }), "鴉閣已確認：‹outcome›");
+	standard();
+	assert.equal(m.wc_b_reply_head(), "回覆主塔台");
+	assert.equal(m.wc_b_reply(), "回覆塔台");
+});
+
 test("Standard to Raven to Standard: the sentences swap both ways, and Standard's words come back whole", () => {
 	standard();
 	const before = ids.map((id) => [id, render(id)] as const);

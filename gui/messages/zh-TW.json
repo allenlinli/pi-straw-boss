@@ -1264,5 +1264,20 @@
 	"back_kind_reasked": "再次詢問",
 	"back_kind_backstop": "由伺服器取消",
 	"back_basis": "依據 {basis}",
-	"back_close": "知道了"
+	"back_close": "知道了",
+	"wc_tag_legacy_head": "主塔台的舊提問",
+	"wc_raised_self_head": "主塔台自己提出",
+	"wc_p_words_head": "主塔台的原話",
+	"wc_b_restate_head": "請主塔台重寫成卡片",
+	"wc_b_reply_head": "回覆主塔台",
+	"wc_skip_tells_head": "略過會告訴主塔台和 {name} 你不做這件事。",
+	"wc_skip_tells_tower_head": "略過會告訴主塔台你不做這件事。",
+	"wc_pressed_restate_head": "已請主塔台重寫",
+	"wc_told_both_head": "已通知主塔台和 {name}，等主塔台確認",
+	"wc_told_tower_head": "已通知主塔台，等主塔台確認",
+	"wc_told_gone_head": "已通知主塔台；{name} 已離開，沒有通知到",
+	"wc_told_failed_head": "已通知主塔台；沒能通知到 {name}",
+	"wc_ended_head": "主塔台已確認：{outcome}",
+	"wc_ended_plain_head": "主塔台已結束這項等待。",
+	"zen_wait_placeholder_head": "回覆主塔台"
 }

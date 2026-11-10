@@ -4,7 +4,7 @@ import { test } from "node:test";
 import type { BossWait, TowerService } from "../src/net.ts";
 import { El } from "./fake-dom.ts";
 
-// The wait card's buttons on the tower card and in the comms (gui/waitcard.ts, gui/towernotes.ts): a row is the card folded to one line with its primary beside it; a tap unfolds the rest. The card has no link to the tower's comms there (the dock's
+// The wait card's rows on the tower card and in the comms (gui/waitcard.ts, gui/towernotes.ts): a row is the card folded to one line with no press beside it; a tap unfolds the panel, where an act is picked and Send presses (docs/specs/2026-11-10-wait-cards-tui.md, Q1). The card has no link to the tower's comms there (the dock's
 // dialog has it in its footer); a card wait whose raiser the net has a unit for offers Open <raiser>. A press or an answer the server took says so; a stale stream says why the buttons are off.
 
 const { fillNotices } = await import("../gui/towernotes.ts");
@@ -26,15 +26,27 @@ const rig = async (ws: string, key: string, waits: BossWait[] = [LEGACY]) => {
 };
 const settle = () => new Promise((done) => setTimeout(done, 5));
 
-test("a wait row is the card folded to one line with its primary button beside it; a tap on the line unfolds the rest", async () => {
+test("a wait row is the card folded to one line with no press beside it; a tap on the line unfolds the panel with its acts", async () => {
 	const r = await rig("wA", "sb-tower-wa", [CARD]);
-	assert.equal(r.box.find((el) => el.classes.has("wait-card"))[0]!.getAttribute("data-folded"), "true");
-	const visible = r.buttons().filter((b) => !b.hidden).map((b) => b.textContent);
-	assert.ok(visible.includes(m.wc_b_done()), "the primary is beside the line");
-	assert.equal(visible.includes(m.wc_b_skip()), false, "Skip waits for the unfolding");
+	const card = r.box.find((el) => el.classes.has("wait-card"))[0]!;
+	assert.equal(card.getAttribute("data-folded"), "true");
+	assert.equal(r.box.find((el) => el.classes.has("ask-opts"))[0]!.hidden, true, "a folded row loses its inline button");
+	assert.equal(r.box.find((el) => el.classes.has("ask-acts"))[0]!.hidden, true, "and its Send");
 	r.unfold();
-	assert.ok(r.by(m.wc_b_skip()), "Skip, the reply fold, and Open <raiser> come with the rest");
+	assert.equal(r.box.find((el) => el.classes.has("ask-opts"))[0]!.hidden, false);
+	assert.ok(r.by(m.wc_b_done()), "the acts come with the unfolding");
+	assert.ok(r.by(m.wc_b_skip()));
 	assert.ok(r.by(m.wc_b_reply()));
+});
+
+test("the head tower's row says the head tower (Q3) where a workspace tower's says the tower", async () => {
+	const head = await rig("@head", "sb-head", [CARD]);
+	head.unfold();
+	assert.ok(head.by(m.wc_b_reply_head()), "Reply to the head tower");
+	assert.equal(head.by(m.wc_b_reply()), undefined);
+	const ws = await rig("wA", "sb-tower-wa", [CARD]);
+	ws.unfold();
+	assert.ok(ws.by(m.wc_b_reply()) && !ws.by(m.wc_b_reply_head()));
 });
 
 test("a row has no link to the tower's comms; a card wait whose raiser the net has a unit for has Open <raiser>, a legacy one has no link at all", async () => {
@@ -52,15 +64,15 @@ test("a Skip the server took (a second tap, the confirm) says so once in the fla
 	const bad = await rig("wB", "sb-tower-wb");
 	bad.unfold();
 	bad.by(m.wc_b_skip())!.click();
-	bad.by(m.wc_skip_yes())!.click();
+	bad.by(m.send())!.click();
 	await settle();
 	assert.ok(bad.text().some((t) => t.includes("no such wait")), "the refusal is shown");
-	assert.equal(bad.by(m.wc_skip_yes())!.disabled, false, "the confirm can be tried again");
+	assert.equal(bad.by(m.send())!.disabled, false, "Send can be tried again");
 	status = 200;
 	const good = await rig("wC", "sb-tower-wc");
 	good.unfold();
 	good.by(m.wc_b_skip())!.click();
-	good.by(m.wc_skip_yes())!.click();
+	good.by(m.send())!.click();
 	await settle();
 	const line = m.wc_pressed_decline() + m.wc_sep() + m.wc_told_tower();
 	assert.deepEqual(good.box.find((el) => el.getAttribute("class") === "tnote-flash").map((el) => el.textContent), [line], "said once, in the flash");
@@ -73,6 +85,7 @@ test("an answer the server took says so once, and the reply fold comes back for 
 	r.by(m.wc_b_reply())!.click();
 	const box = r.box.find((el) => el.tag === "textarea" && el.classes.has("wait-box"))[0] as unknown as { value: string };
 	box.value = "ship it";
+	(box as unknown as El).bubble("input", {});
 	r.by(m.send())!.click();
 	await settle();
 	const flashes = () => r.box.find((el) => el.getAttribute("class") === "tnote-flash").map((el) => el.textContent);
@@ -87,7 +100,7 @@ test("a redraw within the flash's four seconds keeps it; the flash is a status l
 	const r = await rig("wF", "sb-tower-wF");
 	r.unfold();
 	r.by(m.wc_b_skip())!.click();
-	r.by(m.wc_skip_yes())!.click();
+	r.by(m.send())!.click();
 	await settle();
 	fillNotices(r.box as unknown as HTMLElement, "wF", service([], 3), "sb-tower-wF"); // the snapshot after the press drops the row, and the box is redrawn
 	assert.equal(r.box.find((el) => (el.getAttribute("class") ?? "").startsWith("tnote ")).length, 0, "the row is gone");
@@ -109,20 +122,24 @@ test("with the stream stale the buttons are off and the card says why", async ()
 	delete (document.body.dataset as Record<string, string>).stale;
 });
 
-test("the answer box alone (Zen's card mounts it inside the card) has the reply fold and Send, and nothing else", async () => {
+test("the answer box alone (the card mounts it under its Reply row) takes words, is ready only with some, and sends them to the tower's input; the box empties once the tower took them", async () => {
 	Object.assign(globalThis.document, { querySelector: () => ({ content: "CSRF" }), body: { dataset: {} } });
-	Object.assign(globalThis, { fetch: async () => ({ ok: true, status: 200, json: async () => ({ rev: 2, proposals: [], entries: [], accepted: true }) }) });
-	const { waitPanel } = await import("../gui/waitpanel.ts");
+	const { replyBox } = await import("../gui/waitpanel.ts");
 	const { waitActions } = await import("../gui/asks.ts");
-	const { answerPost } = await import("../gui/answer.ts");
-	let done = 0;
-	const panel = waitPanel({ actions: waitActions({ ws: "wG", id: "W1", tower: "sb-tower-wG" }, answerPost("sb-tower-wG")), done: () => void done++ });
-	const el = panel.el as unknown as El;
-	assert.deepEqual(el.find((e) => e.tag === "button").map((b) => b.textContent), [m.send()], "Send in the panel, the fold button outside it");
-	assert.equal((panel.go as unknown as El).textContent, m.wc_b_reply());
-	panel.update(false);
-	assert.deepEqual(el.find((e) => e.tag === "small" && e.textContent === m.wait_stream_stale()), [], "the stale sentence belongs to the card, not the box");
-	assert.equal((panel.go as unknown as El).disabled, false, "an offline page keeps the fold, and the box says so once open");
+	const told: Record<string, unknown>[] = [];
+	const reply = replyBox({ actions: waitActions({ ws: "wG", id: "W1", tower: "sb-tower-wG" }, async (_action, body) => (told.push(body), { ok: true, status: 200, body: { accepted: true } })) });
+	const box = reply.box as unknown as El & { value: string };
+	assert.equal(box.tag, "textarea");
+	assert.equal(reply.ready(), false);
+	assert.deepEqual(await reply.send(), { taken: false }, "no words, nothing sent");
+	box.value = "  ship it ";
+	assert.equal(reply.ready(), true);
+	assert.deepEqual(await reply.send(), { taken: true });
+	assert.deepEqual(told, [{ text: "  ship it ", as: "send", answers: "W1" }]);
+	assert.equal(box.value, "");
+	box.value = "x".repeat(16_385);
+	assert.deepEqual(await reply.send(), { taken: false, why: m.too_long() }, "over the session's cap");
+	assert.equal(told.length, 1);
 });
 
 test("every caller of the notices passes the workspace, the service and the tower's key, and nothing else: the card has no comms link to hide", () => {

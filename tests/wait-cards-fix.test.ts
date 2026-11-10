@@ -87,16 +87,20 @@ test("the model offers Open only when the host can name a route for this raiser"
 
 // --- GR-F003: Skip's confirm --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-test("GR-F003: opening Skip's confirm puts the focus on the confirm button, not the optional reason box, and scrolls the confirm into view", () => {
+test("GR-F003: picking Skip keeps the focus on its row, not the optional reason box (no keyboard on a phone), and scrolls the confirm into view; Enter goes on to Send", () => {
 	const card = waitCard({ host: "dialog", wait: WAIT(), actions: waitActions({ ws: "w", id: "W2", tower: "t" }, async () => ({ ok: true, status: 200, body: {} })), remote: false });
 	page.body.append(card.el as never);
-	const el = card.el as unknown as El, box = byClass(el, "wc-skip-box")[0]!;
+	const el = card.el as unknown as El, box = byClass(el, "wc-reveal")[0]!;
 	const scrolled: unknown[] = [];
 	box.scrollIntoView = ((o: unknown) => void scrolled.push(o)) as never;
-	byClass(el, "wc-skip")[0]!.click();
-	assert.equal(page.activeElement, byClass(el, "wc-skip-yes")[0], "the focus is on Skip it");
+	const skip = el.find((x) => x.tag === "button" && x.dataset.act === "skip")[0]!;
+	skip.focus();
+	skip.click();
+	assert.equal(page.activeElement, skip, "the focus stays on the Skip row");
 	assert.notEqual(page.activeElement, byClass(el, "wc-skip-reason")[0], "not on the reason box (no keyboard on a phone)");
 	assert.equal(scrolled.length, 1, "the confirm is scrolled into view");
+	skip.bubble("keydown", { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 });
+	assert.equal(page.activeElement, byClass(el, "ask-send")[0], "Enter goes on to Send");
 });
 
 // --- GR-F004: the dock's dialog is modal for presses --------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -142,17 +146,20 @@ test("GR-F008: a wait's dialog opens with the focus on the card's primary button
 	}
 });
 
-test("GR-F005: the dock's Skip, which sits in the footer outside the card, goes off with the card's other buttons while the stream is down or a press is on its way", () => {
+test("GR-F005: the Skip row and Send go off with the card's other rows while the stream is down", () => {
 	const layer = mount();
 	const a = alertOf(WAIT());
 	layer.alerts([a as never], new Map([[a.key, a as never]]));
 	layer.stack.show(a as never);
-	const skip = dock.all((el) => el.classes.has("wc-skip"))[0]!;
+	const skip = dock.all((el) => el.tag === "button" && el.dataset.act === "skip")[0]!, send = dock.all((el) => el.classes.has("ask-send"))[0]!;
 	assert.equal(skip.disabled, false);
+	skip.click();
+	assert.equal(send.disabled, false, "picked: Send is on");
 	page.body.dataset.stale = "true";
 	layer.stack.show(a as never);
 	layer.alerts([a as never], new Map([[a.key, a as never]]));
 	assert.equal(skip.disabled, true, "stale: off");
+	assert.equal(send.disabled, true, "and Send with it");
 });
 
 // --- GR-F009: Open <raiser> after a press ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -189,23 +196,23 @@ test("GR-F002: a command wraps whole (pre-wrap, anywhere), on a phone as well, s
 	assert.doesNotMatch(css, /\.wait-card \.wc-cmd \{ overflow-x: auto; \}/, "the phone block does not bring the sideways scroll back");
 });
 
-test("GR-F005: disabled buttons of the card look disabled in the dock and in Zen, and the state line is green only for a press", () => {
-	for (const [name, sheet, ink] of [["dock", css, "var\\(--dim\\)"], ["zen", zen, "var\\(--zen-ash\\)"]] as const) {
-		const off = rule(sheet, name === "zen" ? '[data-view="zen"] .wait-card .pair-btn:disabled {' : ".wait-card .pair-btn:disabled {").join(" ");
-		assert.match(off, /border:\s*1px dashed/, `${name}: an off button is flat and dashed`);
+test("GR-F005: disabled rows of the card look disabled in the dock and in Zen, and the status line is green only for a press", () => {
+	for (const [name, sheet, ink, key] of [["dock", css, "var\\(--dim\\)", ".wait-card :is(.ask-opt, .ask-send):disabled {"], ["zen", zen, "var\\(--zen-ash\\)", '[data-view="zen"] .wait-card :is(.ask-opt, .ask-send):disabled {']] as const) {
+		const off = rule(sheet, key).join(" ");
+		assert.match(off, /opacity:\s*1/, `${name}: at full strength: the panel's 45% would drop the text's contrast`);
 		assert.match(off, /background:\s*transparent/, name);
 		assert.match(off, new RegExp(`color:\\s*${ink}`), `${name}: in the dim text colour`);
-		assert.doesNotMatch(off, /opacity/, `${name}: no opacity, so its text keeps its contrast whatever the row around it does`);
+		if (name === "dock") assert.match(off, /border:\s*1px dashed/, "an off row is flat and dashed");
 	}
-	assert.doesNotMatch(css, /\.wc-opt:disabled[^{]*\{[^}]*opacity/, "no rule dims a disabled option");
-	assert.match(css, /\.tower-notices \.tnote \.wait-card \.pair-btn:disabled\s*\{[^}]*opacity:\s*1[;\s}]/, "the notices' own dimming of an off button does not reach the card's buttons in a row: their text keeps its contrast");
-	assert.doesNotMatch(rule(css, ".wait-card .wc-state {").join(" "), /var\(--ok\)/, "the default state line is not success green");
-	assert.match(css, /\.wait-card\[data-pressed="true"\] \.wc-state\s*\{[^}]*var\(--ok\)/);
-	assert.match(css, /\.wait-card\[data-phase="stale"\] \.wc-state\s*\{[^}]*var\(--gold\)/);
+	assert.match(css, /\.tower-notices \.tnote \.wait-card :is\(\.ask-opt, \.ask-send\):disabled\s*\{[^}]*opacity:\s*1[;\s}]/, "the notices' own dimming of an off button does not reach the card's rows in a row: their text keeps its contrast");
+	assert.doesNotMatch(rule(css, ".wait-card .ask-note {").join(" "), /var\(--ok\)/, "the default status line is not success green");
+	assert.match(css, /\.ask-note\[data-tone="ok"\]\s*\{\s*color:\s*var\(--ok\)/, "the panel's own ok tone, which a press sets");
+	assert.match(css, /\.wait-card\[data-phase="stale"\] \.ask-note\s*\{[^}]*var\(--gold\)/);
 });
 
-test("GR-F006: the card's open, copy and raiser links read as enabled actions (the text colour)", () => {
-	assert.match(css, /\.wait-card :is\(\.wc-open, \.wc-copy, \.wc-main\)\s*\{[^}]*color:\s*var\(--text\)/);
+test("GR-F006: the card's open and copy links read as enabled actions (the text colour), and the raiser's link is the panel's quiet link", () => {
+	assert.match(css, /\.wait-card :is\(\.wc-open, \.wc-copy\)\s*\{[^}]*color:\s*var\(--text\)/);
+	assert.match(rule(css, ".cmp-link {").join(" "), /color:\s*var\(--accent\)/);
 });
 
 test("a box base's tower note card shows its URL as text only; a local base's keeps Open link", async () => {

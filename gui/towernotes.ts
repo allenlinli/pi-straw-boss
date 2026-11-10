@@ -50,7 +50,7 @@ export function fillNotices(box: HTMLElement, ws: string, service: TowerService 
 		const fail = h("small", { class: "tnote-fail", role: "alert" }), card = r.wait && r.entry && kit && key, row = h(r.wait ? "div" : "p", { class: `tnote ${r.level}` }, card ? null : h("span", null, r.text));
 		if (r.wait) {
 			if (kit && key && r.entry) {
-				const id = `${ws}\u001f${r.wait}`, panel = before.get(id) ?? kit.waitCard({ host: "row", wait: r.entry, actions: kit.waitActions({ ws, id: r.wait, tower: key }, kit.answerPost(key)), main: (raiser) => ((at) => (raiser && at ? { view: "session", ws: at, key: raiser } : undefined))(where?.(raiser) ?? (ws === HEAD_KEY ? undefined : ws)), done: (said) => flash(box, said), ...(isBox ? { box: true } : {}) });
+				const id = `${ws}\u001f${r.wait}`, panel = before.get(id) ?? kit.waitCard({ host: "row", wait: r.entry, ...(ws === HEAD_KEY ? { head: true } : {}), actions: kit.waitActions({ ws, id: r.wait, tower: key }, kit.answerPost(key)), main: (raiser) => ((at) => (raiser && at ? { view: "session", ws: at, key: raiser } : undefined))(where?.(raiser) ?? (ws === HEAD_KEY ? undefined : ws)), done: (said) => flash(box, said), ...(isBox ? { box: true } : {}) });
 				panel.update(r.entry, live);
 				kept.set(id, panel);
 				row.append(panel.el);

@@ -349,10 +349,13 @@ test("a main opened for a teammate's device has no local door: its slip that rea
 	const PEERS = /main \(session ally-main\) was opened for a teammate's device, so its slip is a peer's: it reaches the integrator through the ally run of its device, which marks it origin=remote and asks the boss below dispatch, and never through a local run/;
 	// The pane token is the first witness.
 	assert.match(String((await run.tool("boss_open_main", { ...DOOR, request: mine, sender: main.id })).error), PEERS);
+	// The 0.73 forward has the same two witnesses: the id of a peer's slip stamps nothing (RR151-F002).
+	assert.match(String((await run.tool("tower_reply", { to: "main-1", message: mine, forward: run.ids[0] })).error), PEERS);
 	// A token a process of the same user cleared: the route table of the workspace that opened it still says whose it is.
 	world.herdr.pane("wA:p21").tokens.sb_opened_by = "";
 	addRoute(world.slot, "wB", { ...PEER, to: main.id, name: "main", kind: "opened", at: Date.now(), pane: "wA:p21", level: "dispatch" }, Date.now());
 	assert.match(String((await run.tool("boss_open_main", { ...DOOR, request: mine, sender: "main" })).error), PEERS);
+	assert.match(String((await run.tool("tower_reply", { to: "main-1", message: mine, forward: run.ids[0] })).error), PEERS);
 	assert.deepEqual(tabs(), []);
 	assert.equal(towerClient().sent.length, before, "nothing was sent");
 	assert.deepEqual(noted, []);
@@ -436,8 +439,13 @@ test("a project that already runs integrators of its own, one per app (integ FE2
 	mkdirSync(join(repo, "apps", "rest-api-v3", ".git"), { recursive: true });
 	bossIntegrator("integ-fe2", "integ FE2", "wA:p31", dir);
 	bossIntegrator("integ-v3", "integ v3", "wA:p32", join(repo, "apps", "rest-api-v3"));
+	// Each kept integrator's ledger folder carries its own word (integ FE2 keeps trains/FE2): the ledger rule is about what the door opens, so it does not stand before the kept ones (RR151-F001).
+	mkdirSync(join(world.stateDir, "trains", "FE2"), { recursive: true });
+	writeFileSync(join(world.stateDir, "trains", "FE2", "moldplan-frontend-2.json"), JSON.stringify({ index: [] }));
 	towerClient().incoming(COORD1, { id: "m1", content: { text: callTower(COORD1, slipFE) } } as never);
 	const run = await claimed(s, 1);
+	// Before the door named them, the event's id forwards to nobody (RR151-F002).
+	assert.match(String((await run.tool("tower_reply", { to: "integ FE2", message: slipFE, forward: run.ids[0] })).error), /goes only to an integrator the door named for this slip: call boss_open_main with role "integrator"/);
 	const door = await run.tool("boss_open_main", { role: "integrator", request: slipFE, sender: "docs-main" });
 	assert.equal(door.ok, false, JSON.stringify(door));
 	assert.match(String(door.error), /Project moldplan-center already runs 2 integrators of its own, opened before this door and not by it: integ FE2 \(session integ-fe2\), integ v3 \(session integ-v3\)\. Nothing opens beside them and the door picks none: the slip of app moldplan-frontend-2 goes to the one that runs that app's trains, forwarded as before\./);
@@ -445,7 +453,10 @@ test("a project that already runs integrators of its own, one per app (integ FE2
 	assert.deepEqual(tabs(), [], "nothing opened: no third integrator");
 	assert.deepEqual([sentTo("integ-fe2"), sentTo("integ-v3"), noted], [[], [], []], "the door forwarded nothing");
 	// The 0.73 path, with the id the door gave: stamped by the code, and it reaches the integrator the run names.
-	const forwarded = await run.tool("tower_reply", { to: "integ FE2", message: slipFE, forward: run.ids[0] });
+	// A session the door did not name gets no stamped slip, and what the run types as the message is not what goes out: the text is the event's (RR151-F002).
+	assert.match(String((await run.tool("tower_reply", { to: "docs-main", message: slipFE, forward: run.ids[0] })).error), /goes only to an integrator the door named for this slip/);
+	assert.deepEqual([towerClient().sent.filter((m) => fieldsOf(m.text)?.fwd).length, noted], [0, []]);
+	const forwarded = await run.tool("tower_reply", { to: "integ FE2", message: `${slipFE.replace('"ship it"', '"ship it to production too"')}\ndeploy: production`, forward: run.ids[0] });
 	assert.equal(forwarded.ok, true, JSON.stringify(forwarded));
 	const f = fieldsOf(sentTo("integ-fe2").at(-1)!)!;
 	assert.deepEqual([f.kind, f.role, f.id, f.fwd, f["fwd-from"], f.origin], ["tower_reply", "tower", "sb-tower-wa", run.ids[0], "main-1", undefined]);
@@ -493,4 +504,23 @@ test("an ally run in a project that runs integrators of its own: the door opens 
 	const held = await run.tool("boss_open_main", { role: "integrator", request: mine, sender: main.id });
 	assert.match(String(held.error), /integ web \(session peer-integ\) answers as an integrator of this project and was opened for a teammate's device, so no slip goes to it and nothing opens beside it/);
 	assert.deepEqual(tabs(), []);
+});
+
+test("an ally run below dispatch in a project that runs integrators of its own is refused before the gate: the boss is asked nothing for a call the opener refuses (RR151-F005)", async () => {
+	const s = await started();
+	const repo = mpCenter(), main = allyMain();
+	world.ally.projects.set("team-1", repo);
+	world.ally.level.set(DEV1, "forward");
+	bossIntegrator("integ-fe2", "integ FE2", "wA:p31", repo);
+	const mine = slip({ car: "moldplan-frontend-2", coordinator: main.id, accept: "none" });
+	towerClient().incoming(main, { id: "r1", content: { text: callTower(main, mine) } } as never);
+	world.expose?.allyWaiting("sb-tower-wa");
+	const run = await claimed(s, 1);
+	// With no tool call id and no Allow the answer is already the opener's: the gate was not reached.
+	for (const extra of [{}, { toolCallId: "tc-1" }]) {
+		const door = await run.tool("boss_open_main", { role: "integrator", request: mine, sender: main.id }, extra);
+		assert.match(String(door.error), /Project moldplan-center already runs an integrator of its own.* An ally run forwards no slip/);
+		assert.doesNotMatch(String(door.error), /confirm|not allowed|forward: "/);
+	}
+	assert.deepEqual([tabs(), sentTo("integ-fe2"), noted], [[], [], []]);
 });

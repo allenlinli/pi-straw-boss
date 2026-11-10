@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { alive } from "./remote.ts";
 import { boardState, readTrainboards, trainboardDir } from "./train/board.ts";
-import { createTab, report, panes, startPi, type HerdrRun, type Session, type Sleep, workspaces } from "./herdr.ts";
+import { createTab, report, panes, startPi, type HerdrRun, type Pane, type Session, type Sleep, workspaces } from "./herdr.ts";
 import { ForwardAsBefore, INTEGRATOR, integMark, integratorHandoff, integratorOf, keptIntegrators, ledgerProjects, liveIntegrator, MAX_OPENED_INTEGRATORS } from "./integrator.ts";
 import { assertSettingsSafe, SettingsRefused } from "./trust/settings.ts";
 import { inside } from "./link/routing.ts";
@@ -19,6 +19,8 @@ import { waitPastTrust } from "./trust/wait.ts";
 const MAIN_WAIT_MS = 60_000;
 /** At most this many mains opened by towers are alive in one workspace, and at most one per sender. */
 const MAX_OPENED_MAINS = 2;
+/** The wait before the second look for a project's integrator where its ledger says one ran and none is seen. */
+const INTEGRATOR_REREAD_MS = 2_000;
 
 /** A limit was hit: nothing opened, and the same request may be tried again once an opened main has finished. A folder pi must not start in (SettingsRefused) is refused the same way. */
 class OpenLimitError extends Error {}
@@ -57,7 +59,7 @@ export interface PeerSender { id: string; label: string; short: string }
 /**
  * `role`: "train" opens a train on an integrator's manifest (docs/specs/2026-11-07-train-workers.md §3.3); "integrator" finds the one integrator of `project` or opens it, on the car slip the request carries; anything else is refused.
  */
-export interface OpenRequest { request: string; sender: string; label?: string; peer?: PeerSender; role?: string; /** `role: "integrator"`: the project as the caller words it. The code reads the project from the checkout (appsconfig.ts `checkoutProject`), and another word is refused. */ project?: string; /** `role: "integrator"`, an ally run's: the folder its team binds on this computer, which the workspace's checkout must be inside. */ within?: string }
+export interface OpenRequest { request: string; sender: string; label?: string; peer?: PeerSender; role?: string; /** `role: "integrator"`: the project as the caller words it. The code reads the project from the checkout (appsconfig.ts `checkoutProject`), and another word is refused. */ project?: string; /** `role: "integrator"`, an ally run's: the folder its team binds on this computer, which the workspace's checkout must be inside. */ within?: string; /** `role: "integrator"`: only the refusals are wanted, and nothing opens. */ dry?: true }
 export interface Opened { tab: string; pane: string; main: string; sender: string; /** Nothing opened: an earlier open of the same request, or the project's integrator that already runs. */ repeated?: true; /** Set for a train: its project and code. */ train?: TrainId; /** Set for an integrator: its project. */ integrator?: string }
 
 /** The text the new main starts from: who asked, and what, with nothing summarised. The main answers the sender and the tower that opened it, then waits to be closed. */
@@ -114,7 +116,7 @@ export function opener(env: OpenerEnv) {
 		const turn: { end?: () => void } = {};
 		try { return await openHeld(input, turn); } finally { turn.end?.(); }
 	};
-	const openHeld = async ({ request, sender: asked, label: asked_label, peer, role, project, within }: OpenRequest, turn: { end?: () => void }): Promise<Opened> => {
+	const openHeld = async ({ request, sender: asked, label: asked_label, peer, role, project, within, dry }: OpenRequest, turn: { end?: () => void }): Promise<Opened> => {
 		const { run, sleep } = env;
 		if (role !== undefined && role !== TRAIN && role !== INTEGRATOR) throw new OpenLimitError(`role must be "train" or "integrator" when given, not ${JSON.stringify(role).slice(0, 40)}`);
 		// A train is opened on the tower's own reading of an integrator's manifest, and only while the merge train is on; its name is its code, whatever label the caller sent.
@@ -183,15 +185,24 @@ export function opener(env: OpenerEnv) {
 			if (codes.size >= max) throw new OpenLimitError(`Project ${train.project} already has ${codes.size} live train${codes.size === 1 ? "" : "s"} (maxTrains is ${max}); try again when one has finished.`);
 		}
 		if (integ && found) {
-			// An app whose trains another project's integrator already keeps is that project's, whatever this checkout calls itself: the boss says in apps.json which project it is.
-			for (const [app, kept] of found.apps.map((a) => [a, env.stateDir ? ledgerProjects(env.stateDir, a) : []] as const)) if (kept.length && !kept.includes(integ)) throw new OpenLimitError(`The trains of app ${app} are kept under project ${kept.join(", ")} (trains/${kept[0]}/${app}.json in the state folder), and this checkout's project reads ${integ} (${found.from}): its cars go to one integrator, so set integration.project in ${found.file} to the project that keeps them.`);
 			// A project that already runs integrators under names of their own (0.73: the boss's, one per app, such as integ FE2 and integ v3) keeps them: the door opens none beside them, counts none of them, and picks none, so the tower
 			// forwards the slip as before. They are the unmarked mains of kind integrator in this workspace or in this checkout (an app's own repository below it counts); one named integ <project> alone is the project's one, below.
-			const everywhere = await panes(run), sessions = await env.sessions(), root = repoRoot(dir);
-			const kept = keptIntegrators(everywhere, sessions, (p) => here.some((h) => h.pane_id === p.pane_id) || Boolean(p.cwd && (repoRoot(p.cwd) === root || inside(p.cwd, root))));
+			const root = repoRoot(dir), mine = (p: Pane) => p.workspace_id === workspace.workspace_id || here.some((h) => h.pane_id === p.pane_id) || Boolean(p.cwd && (repoRoot(p.cwd) === root || inside(p.cwd, root)));
+			const look = async () => ((everywhere: Pane[], sessions: Session[]) => ({ everywhere, sessions, kept: keptIntegrators(everywhere, sessions, mine), running: liveIntegrator(everywhere, sessions, integ!) }))(await panes(run), await env.sessions());
+			let seen = await look();
+			// A ledger of the project says an integrator has run its trains, and a kept one leaves no durable sign: when none is seen (one that restarts, or sits outside the workspace and the checkout), the door reads once more, and then opens one
+			// only when no unmarked main of kind integrator is alive on the computer at all (a dead integrator must be replaceable). Otherwise it could open a second integrator on the same ledger (RR151-F003).
+			if (!seen.kept.length && !seen.running && env.stateDir && found.apps.some((a) => ledgerProjects(env.stateDir!, a).includes(integ!))) {
+				await sleep(INTEGRATOR_REREAD_MS);
+				const others = keptIntegrators((seen = await look()).everywhere, seen.sessions, () => true);
+				if (!seen.kept.length && !seen.running && others.length) throw new OpenLimitError(`No integrator of project ${integ} is seen in this workspace or its checkout, and its ledger (trains/${integ} in the state folder) says one has run its trains; ${others.map((k) => `${k.session.name ?? k.session.id} (session ${k.session.id})`).join(", ")} ${others.length === 1 ? "is a main" : "are mains"} of kind integrator elsewhere on this computer, so nothing opens beside ${others.length === 1 ? "it" : "them"}. Try again, or ask the boss: an integrator the project keeps sits in the tower's workspace or works in the checkout.`);
+			}
+			const { everywhere, sessions, kept } = seen;
 			if (kept.some((k) => k.session.name !== `integ ${integ}`)) throw new ForwardAsBefore(integ, found.apps, kept.map((k) => ({ id: k.session.id, name: k.session.name ?? k.session.id })));
+			// An app whose trains another project's integrator already keeps is that project's, whatever this checkout calls itself: the boss says in apps.json which project it is. The rule is about what the door opens, so it comes after the kept ones (RR151-F001).
+			for (const [app, held] of found.apps.map((a) => [a, env.stateDir ? ledgerProjects(env.stateDir, a) : []] as const)) if (held.length && !held.includes(integ)) throw new OpenLimitError(`The trains of app ${app} are kept under project ${held.join(", ")} (trains/${held[0]}/${app}.json in the state folder), and this checkout's project reads ${integ} (${found.from}): its cars go to one integrator, so set integration.project in ${found.file} to the project that keeps them.`);
 			// The project's one integrator, wherever on this computer it runs: the slip goes to it, and nothing opens.
-			const running = liveIntegrator(everywhere, sessions, integ);
+			const running = seen.running;
 			if (running && "refusal" in running) throw new OpenLimitError(running.refusal);
 			// It works in this checkout's repository (a worktree of it counts), or it is another repository's integrator under the same name: no slip of this one goes to it.
 			if (running && !(running.pane.cwd && repoRoot(running.pane.cwd) === repoRoot(dir))) throw new OpenLimitError(`The integrator of project ${integ} (${running.session.name ?? running.session.id}, session ${running.session.id}) works in ${running.pane.cwd ? `another repository (${running.pane.cwd})` : "a folder Herdr does not name"}, not in this workspace's (${repoRoot(dir)}): a project's integrator works in its project's checkout, so no slip goes to it. Give this checkout a name of its own (integration.project in ${found.file}), or the boss closes that one.`);
@@ -199,6 +210,8 @@ export function opener(env: OpenerEnv) {
 			// The integrators a tower opened have a count of their own, per workspace, from the panes that carry the marker (so it holds across a tower restart).
 			const opened = here.flatMap((p) => integratorOf(p.tokens?.sb_opened_by) ?? []);
 			if (opened.length >= MAX_OPENED_INTEGRATORS) throw new OpenLimitError(`Workspace ${workspace.label} already has ${opened.length} integrators opened by its tower (${opened.join(", ")}; the limit is ${MAX_OPENED_INTEGRATORS}); try again when one has closed.`);
+			// A dry look (an ally run's, before the boss is asked): every refusal above was told, and nothing opens.
+			if (dry) return { tab: "", pane: "", main: "", sender: sender.id, integrator: integ, repeated: true };
 		}
 		// A train carries `sb_opened_by` as a main does (the tower closes it by that mark), but it counts toward neither of the mains' limits. It is the role that says it (a train in its first moments has none yet):
 		// a main's pane with an `sb_train` token left on it (a crashed train's, or one a process of the same user wrote) is still a main.

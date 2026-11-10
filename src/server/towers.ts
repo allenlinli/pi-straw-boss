@@ -1118,7 +1118,7 @@ export function createTowers(o: TowersOptions): Towers {
 			forwardEvent: (id: string) => {
 				const event = readQueue(slot, ws).find((e) => e.id === id && e.taken?.run === who.id && e.kind === "intercom" && e.from);
 				const fields = event && fieldsOf(event.text);
-				return event && fields?.kind === "call_tower" && fields.why === "shared" ? { id: event.id, from: event.from!.id } : undefined;
+				return event && fields?.kind === "call_tower" && fields.why === "shared" ? { id: event.id, from: event.from!.id, text: event.text } : undefined;
 			},
 			// A reply that settles a blocked call_tower this run took, while auto mode is on, is listed for the return list with the basis it names (autotower.ts `basisOf`) or `none`.
 			decided: (to: string, gist: string, basis: unknown) => {

@@ -101,7 +101,7 @@ test("#132: the launch script makes the process through WMI, leaves the ACL chec
 	const dir = seeded("launch");
 	const token = "0123456789abcdef0123456789abcdef";
 	const childEnv = { ...process.env };
-	const spec = { command: join(process.env.SystemRoot ?? "C:\\Windows", "System32", "PING.EXE"), args: ["-n", "9", "127.0.0.1"], env: childEnv, cwd: dir, options: { detached: true as const, stdio: "ignore" as const, windowsHide: true as const }, starterPid: process.pid, acl: { dir, token } };
+	const spec = { command: join(process.env.SystemRoot ?? "C:\\Windows", "System32", "PING.EXE"), args: ["-n", "9", "127.0.0.1"], env: childEnv, cwd: base(), options: { detached: true as const, stdio: "ignore" as const, windowsHide: true as const }, starterPid: process.pid, acl: { dir, token } };
 	const { file, args, options } = launchCommand(spec, process.env);
 	const stdout = execFileSync(file, args, options);
 	const answer = parseLaunchOutput(stdout);

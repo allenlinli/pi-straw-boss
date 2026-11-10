@@ -19,6 +19,8 @@ export interface Ask { question: string; header?: string; context?: string; opti
 /** What a waiting session waits on: `ask` for one question, `asks` for two to four (ask_user_question), else `why` there is nothing to show; `answer` when the page may answer it (never a secret: SB-F001). */
 export interface Pending { callId: string; tool: string; ask?: Ask; asks?: Ask[]; why?: string; answer?: Answerable }
 export const SEVERAL = "It waits on more than one dialog.";
+/** What a wait on a secret says, and the one reading every page and `/boss answer` take it by: such a wait is never answerable (SB-F001). */
+export const SECRET = "It waits for a secret.";
 interface Call { id: string; name: string; args: Json }
 /** An open tool call of the newest assistant message: what a dialog that names its `toolCallId` is bound to. */
 export interface OpenCall { id: string; name: string }
@@ -101,7 +103,7 @@ async function pendingWith(file: string): Promise<{ pending?: Pending; calls: Op
 	const s = await stat(file).catch(() => undefined), sig = s ? `${s.size}:${s.mtimeMs}` : "", hit = CACHE.get(file);
 	if (hit?.sig === sig) return hit;
 	const found = s ? await openCalls(file).catch(() => null) : [], calls = !found || found === "cut" ? [] : found, [c] = calls;
-	const shape = c?.name === "ask_user" ? askOf(c.args) : c?.name === "ask_user_question" ? questionsOf(c.args) : { why: c?.name === "secret_drop" ? "It waits for a secret." : "It waits on a dialog." };
+	const shape = c?.name === "ask_user" ? askOf(c.args) : c?.name === "ask_user_question" ? questionsOf(c.args) : { why: c?.name === "secret_drop" ? SECRET : "It waits on a dialog." };
 	const pending = found === "cut" ? { callId: `cut:${sig}`, tool: "dialog", why: "Its call is too long to read here." } : c && { callId: c.id, tool: c.name, ...(calls.length > 1 ? { why: SEVERAL } : shape) };
 	const entry = { sig, pending, calls: calls.map((x) => ({ id: x.id, name: x.name })), secret: !found || found === "cut" || calls.some((x) => x.name === "secret_drop"), linkRequest: !found || found === "cut" || calls.some((x) => x.name === "link_request") }; // a file it could not read through counts as a secret, and as a link_request
 	CACHE.set(file, entry);

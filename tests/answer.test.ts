@@ -124,7 +124,7 @@ test("/boss answer reads the page's own stream and answers through the page's ow
 	});
 	await until(async () => unitB(await snapshot(hosted.url))?.pending?.answer, "B's dialog in the snapshot");
 	await answer("", false, "");
-	assert.match(told.at(-1)!.text, /\[B\]\n    Robot Hand — List it[\s\S]*\n      1\. Run it in a new Herdr pane\n      2\. Copy it\n      3\. No, thanks/);
+	assert.match(told.at(-1)!.text, /\[B\]\n    Robot Hand — List it[\s\S]*\n      1\. Run it in a new Herdr pane\n         Runs it at once in a new pane\n      2\. Copy it\n      3\. No, thanks/);
 	await answer("B", false, "1");
 	assert.match(told.at(-1)!.text, /^Answered .* It goes on in that session's terminal\.$/);
 	assert.equal(told.at(-1)!.level, undefined);

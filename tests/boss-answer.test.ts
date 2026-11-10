@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
@@ -20,7 +21,7 @@ const D1 = "1".repeat(64), D2 = "2".repeat(64), D3 = "3".repeat(64);
 const SELECT = { dialog: "d-sel", digest: D1, cancel: true as const, select: { title: "Deploy to staging?", choices: [{ label: "Yes" }, { label: "No", hereOnly: true as const }, { label: "Later" }] } };
 const ONE_Q = { dialog: "d-one", digest: D2, questions: [{ question: "Which branch?", multiple: false, options: [{ title: "main" }, { title: "dev" }, { title: "next" }] }] };
 const TWO_Q = { dialog: "d-two", digest: D3, questions: [{ question: "Which branch?", multiple: false, options: [{ title: "main" }] }, { question: "Which checks?", multiple: true, options: [{ title: "unit" }, { title: "e2e" }] }] };
-const SECRET = "It waits for a secret.";
+const SECRET = "It waits for a secret.", SEVERAL = "It waits on more than one dialog.";
 
 const unit = (key: string, name: string, pending?: Pending, extra: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name, role: "main", mark: pending ? "waiting" : "working", subs: [], ...(pending ? { pending } : {}), ...extra }) as Unit;
 const base = (label: string, units: Unit[], extra: Record<string, unknown> = {}) => ({ id: `w-${label}`, label, mark: "waiting", tower: null, tabs: [{ id: "t1", label: "tab", units }], outposts: [], outside: [], ...extra });
@@ -34,6 +35,8 @@ const NET = (over: Unit[] = []): Net => ({
 			unit("k-dial-000005", "secret dialog", { callId: "c5", tool: "robot_hand", why: SECRET }),
 			unit("k-crafted-006", "crafted", { callId: "c6", tool: "secret_drop", why: SECRET, answer: SELECT }),
 			unit("k-crafted-007", "crafted two", { callId: "c7", tool: "robot_hand", why: SECRET, answer: SELECT }),
+			unit("k-twice-0000012", "drop twice", { callId: "c12", tool: "secret_drop", why: SEVERAL }),
+			unit("k-twice-0000013", "drop twice crafted", { callId: "c13", tool: "secret_drop", why: SEVERAL, answer: SELECT }),
 			unit("k-several-008", "several", { callId: "c8", tool: "bash", why: "It waits on more than one dialog." }),
 			unit("m1", "me", { callId: "c9", tool: "robot_hand", answer: SELECT }),
 			unit("k-idle-0000009", "idle"),
@@ -43,8 +46,8 @@ const NET = (over: Unit[] = []): Net => ({
 	],
 }) as unknown as Net;
 
-interface Options { ui?: boolean; confirm?: boolean; selects?: (string | undefined)[]; inputs?: (string | undefined)[]; lang?: string; net?: Net; reply?: Awaited<ReturnType<Post>> | ((path: string) => Awaited<ReturnType<Post>>) }
-function world({ ui = true, confirm = true, selects = [], inputs = [], lang = "en", net = NET(), reply }: Options = {}) {
+interface Options { record?: GuiRecord; stream?: (r: GuiRecord) => Promise<Net>; ui?: boolean; confirm?: boolean; selects?: (string | undefined)[]; inputs?: (string | undefined)[]; lang?: string; net?: Net; reply?: Awaited<ReturnType<Post>> | ((path: string) => Awaited<ReturnType<Post>>) }
+function world({ record = { port: 1, token: "t", pid: 1 } as GuiRecord, stream, ui = true, confirm = true, selects = [], inputs = [], lang = "en", net = NET(), reply }: Options = {}) {
 	const hw = hereWorld("wA:p1"), during: { kind: string; marked: boolean }[] = [];
 	const told: { text: string; level?: string }[] = [], posted: { path: string; json: Record<string, unknown> }[] = [], asked: { title: string; body: string; opts?: Record<symbol, unknown> }[] = [], selected: { title: string; options: string[] }[] = [];
 	const selectQueue = [...selects], inputQueue = [...inputs];
@@ -56,7 +59,7 @@ function world({ ui = true, confirm = true, selects = [], inputs = [], lang = "e
 		notify: () => {},
 	};
 	const kit = { pi: {}, cfg: { env: { LANG: lang }, run: async () => "{}" }, s: { at: { workspaceId: "wA", tabId: "wA:t1", paneId: "wA:p1" }, ui: ui ? screen : undefined }, guiDir: "/nowhere", me: () => "m1", tell: (text: string, level?: string) => void told.push({ text, level }) } as unknown as Kit;
-	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, post, here: hw.here, stream: async () => net });
+	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: record as never }), sessions: async () => [] }, closeSelf: () => undefined, post, here: hw.here, stream: stream ?? (async () => net) });
 	const run = (line: string) => ((a) => paths.answer(a.query, a.cancel, a.text))(parseAnswer(line));
 	return { run, told, posted, asked, selected, during, hw, last: () => told.at(-1)! };
 }
@@ -76,10 +79,27 @@ test("the list shows each open dialog of the other sessions with numbered choice
 	assert.match(text, /dropper .*\n    it waits for a secret: only its terminal takes it, and \/boss answer never does/);
 	assert.match(text, /secret dialog .*\n    it waits for a secret/);
 	assert.match(text, /crafted .*\n    it waits for a secret/, "a secret wait is listed as a secret even when something answerable rides along");
-	assert.match(text, /several .*\n    it cannot be answered from here: It waits on more than one dialog\./);
+	assert.match(text, /drop twice \(in Shop\).*\n    it waits for a secret/, "a secret_drop whose why is not the secret sentence (two open calls) is still listed as a secret");
+	assert.match(text, /drop twice crafted .*\n    it waits for a secret/);
+	assert.match(text, /\n  several .*\n    it cannot be answered from here: It waits on more than one dialog\./);
 	assert.doesNotMatch(text, /\bme\b|on a box|idle/);
 	assert.equal(w.posted.length, 0, "a list posts nothing");
 	assert.equal(w.asked.length, 0);
+});
+
+const NOTED_SEL = { dialog: "d-nsel", digest: D1, select: { title: "Run it?", choices: [{ label: "Run", note: "Runs the migration on staging" }, { label: "Skip" }, { label: "Wait", note: "Asks again\x1b[2Ktomorrow" }] } };
+const NOTED_Q = { dialog: "d-nq", digest: D2, questions: [{ question: "Which branch?", multiple: false, options: [{ title: "main", description: "The release line" }, { title: "dev" }] }] };
+
+test("the list and the confirm show a choice's note and an option's description as the page does, written out like the rest (AD-F005)", async () => {
+	const w = world({ net: NET([unit("k-noted-000020", "noted", { callId: "c20", tool: "robot_hand", answer: NOTED_SEL }), unit("k-noted-000021", "noted q", { callId: "c21", tool: "ask_user_question", answer: NOTED_Q })]) });
+	await w.run("");
+	assert.match(w.last().text, /noted \(in Shop\).*\n    Run it\?\n      1\. Run\n         Runs the migration on staging\n      2\. Skip\n      3\. Wait\n         Asks again\\x1b\[2Ktomorrow\n/);
+	assert.match(w.last().text, /noted q .*\n    Which branch\?\n      1\. main\n         The release line\n      2\. dev$/);
+	await w.run("noted 1");
+	assert.match(w.asked[0]!.body, /Run it\?\n  1\. Run\n     Runs the migration on staging\n  2\. Skip\n  3\. Wait\n     Asks again\\x1b\[2Ktomorrow\n\nYour answer: 1\. Run/);
+	await w.run('"noted q" 1');
+	assert.match(w.asked[1]!.body, /Which branch\?\n  1\. main\n     The release line\n  2\. dev\n\nYour answer/);
+	assert.doesNotMatch(w.asked.map((a) => a.body).join(), /\x1b/);
 });
 
 test("the list writes out what a session wrote: control and bidi characters in a name, a title, and a choice cannot repaint it", async () => {
@@ -107,7 +127,7 @@ test("an answer by number posts the page's route with the dialog, its digest, a 
 	assert.match(String(json.answerId), /^[A-Za-z0-9_-]{16,64}$/);
 	assert.equal(w.asked.length, 1);
 	assert.equal(w.asked[0]!.opts?.[HERE_ONLY], true, "only this computer may answer it");
-	assert.match(w.asked[0]!.body, /worker one \(in Shop\) waits on:\nDeploy to staging\?\n\nYour answer: 3\. Later/);
+	assert.match(w.asked[0]!.body, /worker one \(in Shop\) waits on:\nDeploy to staging\?\n  1\. Yes\n  2\. No\n  3\. Later\n\nYour answer: 3\. Later/);
 	assert.deepEqual(w.during, [{ kind: "confirm", marked: true }], "the pane is marked while the screen waits");
 	assert.equal(w.hw.marked(), false);
 	assert.deepEqual(w.last(), { text: "Answered worker one", level: undefined });
@@ -174,7 +194,7 @@ test("--cancel posts a cancel for a dialog that takes one, and is refused for on
 });
 
 test("a secret is refused, with nothing asked and nothing posted: the secret_drop tool, a secret dialog, and a secret wait that carries an answer all the same", async () => {
-	for (const name of ["dropper", "secret dialog", "crafted", "crafted two"]) {
+	for (const name of ["dropper", "secret dialog", "crafted", "crafted two", "drop twice", "drop twice crafted"]) {
 		const w = world();
 		await w.run(`"${name}" 1`);
 		assert.equal(w.posted.length, 0, name);
@@ -210,7 +230,7 @@ test("a dialog the page cannot answer, no match, and more than one match are tol
 	assert.match(w.last().text, /No other session waits/, "a box's units are the page's");
 	await w.run("idle 1");
 	assert.match(w.last().text, /No other session waits/);
-	const twin = world({ net: NET([unit("k-worker-0099", "worker one", { callId: "c12", tool: "robot_hand", answer: SELECT })]) });
+	const twin = world({ net: NET([unit("k-worker-0099", "worker one", { callId: "c14", tool: "robot_hand", answer: SELECT })]) });
 	await twin.run('"worker one" 1');
 	assert.match(twin.last().text, /More than one session matches "worker one"; nothing was done[\s\S]*\[k-worker-0001\][\s\S]*\[k-worker-0099\]/);
 	assert.equal([w, twin].reduce((n, x) => n + x.posted.length, 0), 0);
@@ -274,37 +294,87 @@ test("a paired device's composer cannot type it (a slip guard like link decide),
 
 // ---- The stream reader ----------------------------------------------------------------------------------------------------------------------
 
-async function serve(frames: string[], status = 200) {
-	const seen: { path?: string; host?: string }[] = [];
+/** `frames` go out in order, a `{ after }` one that many ms after the one before; `end` closes the stream after the last. */
+async function serve(frames: (string | { after: number; frame: string })[], status = 200, end = false) {
+	const seen: { path?: string; host?: string }[] = [], timers = new Set<ReturnType<typeof setTimeout>>();
 	const server = createServer((req, res) => {
 		seen.push({ path: req.url, host: req.headers.host });
 		res.writeHead(status, { "content-type": "text/event-stream" });
-		for (const f of frames) res.write(f);
-		if (status !== 200) res.end("no"); // a refusal's headers go out with its body
+		if (status !== 200) return void res.end("no"); // a refusal's headers go out with its body
+		let wait = 0;
+		frames.forEach((f, at) => {
+			wait += typeof f === "string" ? 0 : f.after;
+			const send = () => (res.write(typeof f === "string" ? f : f.frame), end && at === frames.length - 1 && res.end());
+			if (wait) timers.add(setTimeout(send, wait));
+			else send();
+		});
 	});
 	await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
-	const record = { port: (server.address() as AddressInfo).port, token: "tok", pid: 1 } as GuiRecord;
-	return { record, seen, stop: () => new Promise<void>((done) => (server.closeAllConnections(), server.close(() => done()))) };
+	const record = { port: (server.address() as AddressInfo).port, token: TOKEN, pid: 1 } as GuiRecord;
+	return { record, seen, stop: () => new Promise<void>((done) => (timers.forEach(clearTimeout), server.closeAllConnections(), server.close(() => done()))) };
 }
+const TOKEN = "sbtoken0123456789abcdef";
+const HELLO = 'event: hello\ndata: {"stream":"x"}\n\n';
+const frameOf = (net: unknown) => `data: ${JSON.stringify(net)}\n\n`;
+const NET_A = { bases: [{ id: "a", label: "stale", tabs: [] }] }, NET_B = { bases: [{ id: "b", label: "fresh", tabs: [] }] };
 
 test("readStream takes the first plain message of the page's own stream, past hello and ping, and closes it", async () => {
 	const net = { bases: [{ id: "w", label: "L", tabs: [] }] };
-	const s = await serve(["event: hello\ndata: {\"stream\":\"x\"}\n\n", "event: ping\ndata: \n\n", `data: ${JSON.stringify(net)}\n\n`]);
+	const s = await serve([HELLO, "event: ping\ndata: \n\n", frameOf(net)]);
 	try {
-		assert.deepEqual(await readStream(s.record, 2000), net);
-		assert.deepEqual(s.seen, [{ path: "/tok/events", host: `127.0.0.1:${s.record.port}` }]);
+		assert.deepEqual(await readStream(s.record, 2000, 50), net);
+		assert.deepEqual(s.seen, [{ path: `/${TOKEN}/events`, host: `127.0.0.1:${s.record.port}` }]);
 	} finally { await s.stop(); }
 });
 
-test("readStream fails with the stream's own words: a problem event, a refusal, no net in time, and a frame that is no net", async () => {
-	const problem = await serve(["event: problem\ndata: \"herdr is down\"\n\n"]);
-	const refused = await serve([], 403);
-	const slow = await serve(["event: hello\ndata: {}\n\n"]);
-	const odd = await serve(["data: [1,2]\n\n"]);
+test("a net that follows hello is the server's cached reading: readStream reads on and takes the newest (AD-F001), the one that follows within the window or the last one before the stream ends", async () => {
+	const later = await serve([HELLO, frameOf(NET_A), { after: 40, frame: frameOf(NET_B) }]);
+	const ended = await serve([HELLO, frameOf(NET_A), frameOf(NET_B)], 200, true);
+	const only = await serve([HELLO, frameOf(NET_A)]);
 	try {
-		await assert.rejects(readStream(problem.record, 2000), /herdr is down/);
-		await assert.rejects(readStream(refused.record, 2000), /answered 403/);
-		await assert.rejects(readStream(slow.record, 150), /did not send the net in time/);
-		await assert.rejects(readStream(odd.record, 2000), /no net/);
-	} finally { await Promise.all([problem, refused, slow, odd].map((x) => x.stop())); }
+		assert.deepEqual(await readStream(later.record, 5000, 3000), NET_B, "the fresh reading sent after the cached one wins");
+		assert.deepEqual(await readStream(ended.record, 5000, 3000), NET_B, "a stream that ends takes its newest net");
+		assert.deepEqual(await readStream(only.record, 5000, 60), NET_A, "with nothing newer in the window the cached reading stands");
+	} finally { await Promise.all([later, ended, only].map((x) => x.stop())); }
+});
+
+test("a net that comes before hello is the server's first reading (a fresh one): readStream takes it at once and does not wait for another", async () => {
+	const s = await serve([frameOf(NET_A), HELLO, { after: 60, frame: frameOf(NET_B) }]);
+	try {
+		assert.deepEqual(await readStream(s.record, 5000, 3000), NET_A);
+	} finally { await s.stop(); }
+});
+
+test("readStream fails with the stream's own words: a problem event, a refusal, no net in time, and a frame that is no net; a problem is shown without its JSON quotes (AD-F006), and no message carries the token (AD-F003)", async () => {
+	const problem = await serve(["event: problem\ndata: \"herdr is down\"\n\n"]);
+	const raw = await serve(["event: problem\ndata: herdr is down\n\n"]);
+	const refused = await serve([], 403);
+	const slow = await serve([HELLO]);
+	const odd = await serve(["data: [1,2]\n\n"]);
+	const mid = await serve([HELLO, frameOf(NET_A), { after: 20, frame: 'event: problem\ndata: "herdr went away"\n\n' }]);
+	const clean = (words: RegExp) => (e: Error) => words.test(e.message) && !e.message.includes(TOKEN) && !e.message.includes("events");
+	try {
+		await assert.rejects(readStream(problem.record, 2000), (e: Error) => e.message === "herdr is down");
+		await assert.rejects(readStream(raw.record, 2000), (e: Error) => e.message === "herdr is down", "a problem that is not JSON is shown as it came");
+		await assert.rejects(readStream(refused.record, 2000), clean(/^the GUI server answered 403$/));
+		await assert.rejects(readStream(slow.record, 150), clean(/did not send the net in time/));
+		await assert.rejects(readStream(odd.record, 2000), clean(/no net/));
+		await assert.rejects(readStream(mid.record, 2000, 3000), (e: Error) => e.message === "herdr went away", "the net became unreadable while it was being read on");
+	} finally { await Promise.all([problem, raw, refused, slow, odd, mid].map((x) => x.stop())); }
+});
+
+test("a stream that cannot be read is told without the token, from the command as well", async () => {
+	const refused = await serve([], 403);
+	const w = world({ record: refused.record, stream: (r) => readStream(r, 500, 50) });
+	try {
+		await assert.rejects(w.run(""), (e: Error) => /answered 403/.test(e.message) && !e.message.includes(TOKEN));
+		assert.ok(w.told.every((t) => !t.text.includes(TOKEN)));
+		assert.ok(w.posted.every((p) => !JSON.stringify(p).includes(TOKEN)));
+	} finally { await refused.stop(); }
+});
+
+test("a paired device's composer refusal names answering a dialog, in both languages (AD-F004)", () => {
+	const messages = (lang: string) => JSON.parse(readFileSync(new URL(`../gui/messages/${lang}.json`, import.meta.url), "utf8")).composer_local_only as string;
+	assert.match(messages("en"), /answering another session[’']s dialog/);
+	assert.match(messages("zh-TW"), /回答其他工作階段的對話框/);
 });

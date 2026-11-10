@@ -7,17 +7,18 @@ import { firstWord } from "./bossopen.ts";
 import type { GuiRecord } from "./handover.ts";
 import type { Lang } from "./memorycmd.ts";
 import type { Net, Unit } from "./net.ts";
+import type { Answerable } from "./owners.ts";
 import { line, plain } from "./safetext.ts";
 import type { Kit } from "./state.ts";
 
 // `/boss answer [<name|key> [--cancel | <choice number | text>]]`: the boss's typed twin of the page's answer to a session's open dialog (a select, a confirm, or questions). The list reads the net as the page's own stream
-// sends it (the first reading of `events`, which carries each waiting unit's `pending.answer`), and an answer posts to `sessions/<key>/answer`, the route the page posts to, so the server keeps every check: the
+// sends it (the newest reading of `events` within a short window, which carries each waiting unit's `pending.answer`), and an answer posts to `sessions/<key>/answer`, the route the page posts to, so the server keeps every check: the
 // digest of the question as shown, one open dialog per session, the choices a paired device may not make, the answer's own shape. This side words the list, builds the answer as `link answer` does (bosslink.ts), and asks first, on
 // this computer only (hereOnly). A secret stays terminal-only (SB-F001, the boss's decision of 2026-11-10): a wait on a secret is listed as present and refused here, whatever `pending` carries, and no `value` is ever sent.
 // It is the boss's typed input only: boss.ts refuses it in a tower run or an ally run, control.ts's BOSS_LOCAL keeps a paired device's composer from typing it, and no tool reaches this module. The units of an unattended box
-// (operate) are left to the page. What a session wrote (its name, its question, its choices) is shown with control and bidi characters written out (safetext.ts).
+// (operate) are left to the page, though reading the stream counts as a page for the operate host (gui.ts `host.page()`): for about 60 s after a list the controller keeps its operate sessions to the boxes open, a cost only a server flag could save (AD-F002). What a session wrote (its name, its question, its choices) is shown with control and bidi characters written out (safetext.ts).
 
-const STREAM_MS = 8000, MAX_NET = 16 * 1024 * 1024, ANSWER_MS = 30_000;
+const STREAM_MS = 8000, SETTLE_MS = 800, MAX_NET = 16 * 1024 * 1024, ANSWER_MS = 30_000;
 const WORDS = {
 	en: {
 		usage: "/boss answer | answer <name|key> <choice number | text> | answer <name|key> (asks in pi) | answer <name|key> --cancel (quote a name that has spaces)",
@@ -77,17 +78,23 @@ export function parseAnswer(rest: string | undefined): { query: string; cancel: 
 	return { query: named.word, cancel: said === "--cancel", text: said === "--cancel" ? "" : said };
 }
 
-/** The net as the page's stream sends it: its first reading, then the stream is closed. `r.token` rides in the path only, as the page's own load does. */
-export function readStream(r: GuiRecord, ms = STREAM_MS): Promise<Net> {
+/**
+ * The net as the page's stream sends it, then the stream is closed. The stream sends its cached reading first, after `hello` (it is up to `idleMs`, 10 s, old when no page listens), and a fresh reading after it only when that one differs
+ * (gui.ts `events`): a net that follows `hello` is read on for `settle` ms and the newest one stands (AD-F001). A net that comes before `hello` is the server's first reading and stands at once. `r.token` rides in the path only,
+ * as the page's own load does, and no message names it.
+ */
+export function readStream(r: GuiRecord, ms = STREAM_MS, settle = SETTLE_MS): Promise<Net> {
 	return new Promise((done, fail) => {
-		let over = false;
-		const end = (result: Net | Error) => {
+		let over = false, cached = false, latest: Net | undefined, window: ReturnType<typeof setTimeout> | undefined;
+		const end = (result: Net | Error | undefined) => {
 			if (over) return;
 			over = true;
 			clearTimeout(timer);
+			clearTimeout(window);
 			req.destroy();
-			result instanceof Error ? fail(result) : done(result);
+			result instanceof Error ? fail(result) : done(result as Net);
 		};
+		const lost = () => end(latest ?? new Error("the GUI server closed the stream"));
 		const timer = setTimeout(() => end(new Error("the GUI server did not send the net in time")), ms);
 		const req = request({ host: "127.0.0.1", port: r.port, path: `/${r.token}/events`, headers: { host: `127.0.0.1:${r.port}`, accept: "text/event-stream" }, agent: false }, (res) => {
 			if (res.statusCode !== 200) return end(new Error(`the GUI server answered ${res.statusCode}`));
@@ -95,23 +102,29 @@ export function readStream(r: GuiRecord, ms = STREAM_MS): Promise<Net> {
 			res.setEncoding("utf8").on("data", (chunk: string) => {
 				text += chunk;
 				if (text.length > MAX_NET) return end(new Error("the net is too big to read here"));
-				for (let at = text.indexOf("\n\n"); at >= 0; at = text.indexOf("\n\n")) {
+				for (let at = text.indexOf("\n\n"); at >= 0 && !over; at = text.indexOf("\n\n")) {
 					const rows = text.slice(0, at).split("\n");
 					text = text.slice(at + 2);
 					const event = rows.find((x) => x.startsWith("event: "))?.slice(7), data = rows.filter((x) => x.startsWith("data: ")).map((x) => x.slice(6)).join("\n");
-					if (event === "problem") return end(new Error(data));
+					if (event === "problem") return end(new Error(problem(data)));
+					if (event === "hello") cached = true; // a net that came before hello was read just now, and has ended the wait already
 					if (event || !data) continue; // hello, ping
 					try {
 						const net = JSON.parse(data) as Net;
-						return end(Array.isArray(net?.bases) ? net : new Error("the GUI server sent something that is no net"));
+						if (!Array.isArray(net?.bases)) return end(new Error("the GUI server sent something that is no net"));
+						if (!cached || latest) return end(net); // fresh, or the newer one that follows the cached reading
+						latest = net;
+						window = setTimeout(() => end(latest), settle);
 					} catch { return end(new Error("the GUI server sent something that is no net")); }
 				}
-			}).on("end", () => end(new Error("the GUI server closed the stream"))).on("error", () => end(new Error("the GUI server closed the stream")));
+			}).on("end", lost).on("error", lost);
 		});
 		req.on("error", () => end(new Error("the GUI server did not answer")));
 		req.end();
 	});
 }
+/** The stream sends a problem as JSON text (`"herdr is down"`); an older or odd sender's raw text is shown as it came. */
+const problem = (data: string) => { try { const said = JSON.parse(data); return typeof said === "string" ? said : data; } catch { return data; } };
 
 interface Row { key: string; name: string; base: string; pending: Pending }
 const flat = (units: Unit[]): Unit[] => units.flatMap((u) => [u, ...flat(u.subs)]);
@@ -134,6 +147,14 @@ const dialogOf = (p: Pending): Dlg | undefined => {
 	if (a?.select) return { kind: "select", title: a.select.title, choices: a.select.choices.map((c) => c.label), cancel };
 	return a?.questions ? { kind: "questions", qs: a.questions.map((q) => ({ question: q.question, multiple: q.multiple, options: q.options.map((o) => o.title) })), cancel } : undefined;
 };
+
+/** The dialog as the page shows it: the question, its numbered choices, and under each the note or description its sender wrote (AD-F005), every line written out. `pad` is the indent of the question; the choices sit two further in. */
+function shown(a: Answerable, pad: string, several: string): string[] {
+	const numbered = (options: { text: string; hint?: string }[]) => options.flatMap((o, i) => [`${pad}  ${i + 1}. ${line(o.text)}`, ...(o.hint ? [`${pad}     ${line(o.hint)}`] : [])]);
+	if (a.select) return [`${pad}${plain(a.select.title)}`, ...numbered(a.select.choices.map((c) => ({ text: c.label, hint: c.note })))];
+	const qs = a.questions ?? [];
+	return qs.flatMap((q, i) => [`${pad}${qs.length > 1 ? `${i + 1}) ` : ""}${plain(q.question)}${q.multiple ? ` ${several}` : ""}`, ...numbered(q.options.map((o) => ({ text: o.title, hint: o.description })))]);
+}
 
 export interface AnswerDeps {
 	/** The server's recorded GUI, or the refusal in the boss's words. */
@@ -160,8 +181,7 @@ export function createBossAnswer({ s, tell, me }: Pick<Kit, "s" | "tell" | "me">
 				const d = dialogOf(x.pending), head = t().unit(line(x.name), line(x.base), x.key);
 				if (secret(x.pending)) return [head, t().secret];
 				if (!d) return [head, t().cannot(line(x.pending.why ?? "it waits on a dialog"))];
-				const numbered = (options: string[]) => options.map((o, i) => `      ${i + 1}. ${line(o)}`);
-				const body = d.kind === "select" ? [`    ${plain(d.title)}`, ...numbered(d.choices)] : d.qs.flatMap((q, i) => [`    ${d.qs.length > 1 ? `${i + 1}) ` : ""}${plain(q.question)}${q.multiple ? ` ${t().several}` : ""}`, ...numbered(q.options)]);
+				const body = shown(x.pending.answer!, "    ", t().several);
 				return [head, ...body, ...(d.cancel ? [t().cancelLine(line(x.name))] : [])];
 			})].join("\n"));
 		}
@@ -176,7 +196,7 @@ export function createBossAnswer({ s, tell, me }: Pick<Kit, "s" | "tell" | "me">
 		const built = cancel ? { answer: { cancel: true }, said: t().cancelWord } : await build(d, text);
 		if (built === undefined) return tell(t().notSent);
 		if (typeof built === "string") return tell(built, "error");
-		const question = d.kind === "select" ? plain(d.title) : d.qs.map((q) => plain(q.question)).join("\n");
+		const question = shown(a, "", t().several).join("\n");
 		if (!(await confirm(t().sendTitle, t().sendBody(name, line(at!.base), question, built.said), true))) return tell(t().notSent);
 		// The digest is the question's as it was read above and shown: the server refuses the answer when the dialog has since changed.
 		const reply = await post(r, `sessions/${encodeURIComponent(at!.key)}/answer`, { dialog: a.dialog, digest: a.digest, answerId: randomUUID().replace(/-/g, ""), ...built.answer }, ANSWER_MS);

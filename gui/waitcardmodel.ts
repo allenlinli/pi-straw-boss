@@ -20,8 +20,10 @@ export interface CardModel {
 	buttons: Button[];
 	/** The state in words: what the boss pressed and who was told, the secret's second step, or that the stream is down / the tower closed it. */
 	line: string;
-	/** Instead of a start button on a device that cannot enter a secret (WC-D4). */
+	/** Instead of a start button on a device that cannot enter a secret (WC-D4), or while auto mode parks the card and refuses a secret's press (auto-mode spec AM-F013). */
 	remote?: string;
+	/** The card is parked for the boss's return (auto mode is on): its mark. */
+	parked?: string;
 	/** The secret card's step: 1 before the start button is pressed, 2 after the raiser was asked. */
 	step?: 1 | 2;
 	/** Whether the whole card was read (a cut card has only its text until the page reads it). */
@@ -101,7 +103,7 @@ export function cardModel(i: CardInput, o?: Opts): CardModel {
 		if (kind === "action" && !pressed) act({ id: "done", label: m.wc_b_done({}, o), primary: true });
 		else if (kind === "choice") card!.options?.forEach((opt, k) => act({ id: "choose", label: opt.label, then: opt.then, option: k, ...(pressed && w.press?.option === k ? { picked: true } : {}) }));
 		else if (kind === "secret" && !pressed) {
-			if (step === 1) (i.remote ? (remote = m.wc_at_computer({}, o)) : act({ id: "secret", label: m.wc_b_start({}, o), primary: true }));
+			if (step === 1) (w.parked ? (remote = m.wc_secret_parked({}, o)) : i.remote ? (remote = m.wc_at_computer({}, o)) : act({ id: "secret", label: m.wc_b_start({}, o), primary: true }));
 			else act({ id: "entered", label: m.wc_b_entered({}, o), primary: true });
 		} else if (kind === "legacy" && !pressed && !w.cut) act({ id: "restate", label: m.wc_b_restate({}, o), primary: true });
 		if (card?.from && !card.from.gone && card.from.key && i.open) buttons.push({ id: "main", label: m.wc_b_main({ name: card.from.name }, o), ...(off ? { disabled: true } : {}) });
@@ -109,5 +111,5 @@ export function cardModel(i: CardInput, o?: Opts): CardModel {
 		if (!(w.press?.act === "decline")) buttons.push({ id: "skip", label: m.wc_b_skip({}, o), ...(phase === "stale" || phase === "sending" ? { disabled: true } : {}) });
 	}
 	const line = phase === "ended" ? (w.outcome ? m.wc_ended({ outcome: w.outcome }, o) : m.wc_ended_plain({}, o)) : phase === "stale" ? (i.blocked ?? m.wc_stale({}, o)) : pressed ? pressedLine(w, o) : step === 2 ? secretLine(w, i.secretOpen, o) : "";
-	return { kind, tag: tagOf(kind, o), raised: raisedLine(w, i.now, o), parts, buttons, line, ...(remote ? { remote } : {}), ...(step ? { step } : {}), whole: !w.cut };
+	return { kind, tag: tagOf(kind, o), raised: raisedLine(w, i.now, o), parts, buttons, line, ...(remote ? { remote } : {}), ...(w.parked && phase !== "ended" ? { parked: m.wait_parked({}, o) } : {}), ...(step ? { step } : {}), whole: !w.cut };
 }

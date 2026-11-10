@@ -62,7 +62,7 @@ test("F002: the flags are the documented ones (DETACHED_PROCESS, new process gro
 	assert.match(LAUNCH_SCRIPT, /\$wmi\.Create\(\$env:SB_LAUNCH_CMD, \$env:SB_LAUNCH_CWD, \$si\)/);
 	assert.ok(!/Start-Process|Invoke-Expression|node\.exe|straw-boss/i.test(LAUNCH_SCRIPT), "a Start-Process child would be in the starter's job; no path is quoted into the script");
 	assert.match(LAUNCH_SCRIPT, /\$away = \$false/);
-	assert.match(LAUNCH_SCRIPT, /ConvertTo-Json -Compress/);
+	assert.match(LAUNCH_SCRIPT, /\$mj = ToJson \$m/);
 });
 
 test("the launch answer: the pid and whether the process is outside the job when WMI returned 0, an error with its code otherwise", () => {
@@ -331,7 +331,7 @@ test("the launch script makes the ACL check in the same PowerShell start: after 
 	const at = (needle: RegExp) => LAUNCH_SCRIPT.search(needle);
 	assert.ok(at(/\$wmi\.Create\(\$env:SB_LAUNCH_CMD, /) > 0);
 	assert.ok(at(/\$env:SB_ACL_PID = \[string\]\$newPid/) > at(/\$wmi\.Create\(\$env:SB_LAUNCH_CMD, /), "the pid is the new one");
-	assert.ok(at(/Get-Acl -LiteralPath \$dir/) > at(/SB_ACL_PID = /));
+	assert.ok(at(/dir = \(Sddl \$dir\)/) > at(/SB_ACL_PID = /));
 	assert.ok(at(/icacls\.exe/) > at(/SB_ACL_PID = /) && at(/\/reset/) > 0, "the same reset and read-back as the server's script");
 	assert.match(LAUNCH_SCRIPT, /if \(\$created -and \$env:SB_ACL_DIR\)/, "no check when nothing was created, or when no check was asked for");
 	assert.match(LAUNCH_SCRIPT, /\$m\['error'\] = \$aclError/, "a failure of the check is left in the marker, for the server to end with");
@@ -424,11 +424,11 @@ test("N-F001: rc 0 with no usable pid, a half answer, and garbage are failed sta
 
 test("N-F001: the script reports a failure of the marker and any failure after the create in its answer (`created` decides the exit code), and removes its own temporary marker", () => {
 	assert.match(LAUNCH_SCRIPT, /\$created = \(\$r\.ReturnValue -eq 0\)\n/, "set the moment the first create returns, before anything else can fail");
-	assert.match(LAUNCH_SCRIPT, /try \{\n\s+\[IO\.File\]::WriteAllText\(\$env:SB_ACL_MARKER \+ '\.tmp'[^\n]*\n\s+\[IO\.File\]::Move[^\n]*\n\s+\} catch \{\n\s+\$markerError = \$_\.Exception\.Message\n\s+Remove-Item -LiteralPath \(\$env:SB_ACL_MARKER \+ '\.tmp'\)/);
+	assert.match(LAUNCH_SCRIPT, /try \{\n\s+\[IO\.File\]::WriteAllText\(\$env:SB_ACL_MARKER \+ '\.tmp'[^\n]*\n\s+\[IO\.File\]::Move[^\n]*\n\s+\} catch \{\n\s+\$markerError = \$_\.Exception\.Message\n\s+try \{ \[IO\.File\]::Delete\(\$env:SB_ACL_MARKER \+ '\.tmp'\) \} catch \{ \}/);
 	assert.match(LAUNCH_SCRIPT, /markerError = \$markerError \}\)/, "the answer line carries it");
 	assert.match(LAUNCH_SCRIPT, /\} catch \{\n\s+Say \(\[ordered\]@\{ rc = \$\(if \(\$created\) \{ 0 \} else \{ -1 \}\)/, "a failure after the create still prints the answer with rc 0 and the pid");
 	assert.match(LAUNCH_SCRIPT, /if \(-not \$created\) \{ exit 1 \}/, "and only a failure before it exits 1");
-	assert.match(LAUNCH_SCRIPT, /function Say\(\$o\)[^\n]*\[regex\]::Replace\(\$j, /, "the answer line is pure ASCII too (sbr-F007)");
+	assert.match(LAUNCH_SCRIPT, /function Say\(\$o\) \{ \$j = ToJson \$o; [^\n]*\[regex\]::Replace\(\$j, /, "the answer line is pure ASCII too (sbr-F007)");
 });
 
 test("N-F001: the error marker has a temporary name of its own and does not replace one that is there", async () => {
@@ -446,10 +446,10 @@ test("N2-F001: the script prints a fixed line right before the first Win32_Proce
 	const lines = LAUNCH_SCRIPT.split("\n");
 	const at = (re: RegExp) => lines.findIndex((l) => re.test(l));
 	assert.equal(BEFORE_CREATE, "sb-before-create");
-	const before = at(/Write-Output 'sb-before-create'/), create = at(/^\s+\$r = \$wmi\.Create\(\$env:SB_LAUNCH_CMD, /), tryAt = lines.indexOf("try {"), watch = at(/Stopwatch/);
+	const before = at(/^\s+'sb-before-create'$/), create = at(/^\s+\$r = \$wmi\.Create\(\$env:SB_LAUNCH_CMD, /), tryAt = lines.indexOf("try {"), watch = at(/Stopwatch/);
 	assert.ok(before > 0 && create === before + 1, "immediately before the first create");
 	assert.ok(watch > tryAt && tryAt > 0, "the stopwatch is inside the try");
-	assert.equal(lines.filter((l) => /Write-Output 'sb-before-create'/.test(l)).length, 1);
+	assert.equal(lines.filter((l) => /^\s+'sb-before-create'$/.test(l)).length, 1);
 });
 
 test("N2-F001: a PowerShell that exits non-zero without the line in its stdout did not reach the create: the plain spawn, visibly (a refused method, an AMSI or EDR block, a parse error)", async () => {
@@ -495,11 +495,11 @@ test("a CLIXML stderr never reaches a failure text: the error record's message, 
 test("R7-F001: the launch script checks the folder's exact owner before the create and before the line that says a server may exist; a foreign owner is rc -2 and `exit 0` with nothing created", () => {
 	const lines = LAUNCH_SCRIPT.split("\n");
 	const at = (re: RegExp) => lines.findIndex((l) => re.test(l));
-	const sddl = at(/Get-Acl -LiteralPath \$env:SB_ACL_DIR/), refuse = at(/rc = -2/), exit = at(/^\s+exit 0$/), line = at(/Write-Output 'sb-before-create'/), create = at(/\$wmi\.Create\(\$env:SB_LAUNCH_CMD, /);
+	const sddl = at(/\$sd = \[IO\.Directory\]::GetAccessControl\(\$env:SB_ACL_DIR/), refuse = at(/rc = -2/), exit = at(/^\s+exit 0$/), line = at(/^\s+'sb-before-create'$/), create = at(/\$wmi\.Create\(\$env:SB_LAUNCH_CMD, /);
 	assert.ok(sddl > 0 && sddl < refuse && refuse < exit && exit < line && line < create, `${sddl} ${refuse} ${exit} ${line} ${create}`);
 	assert.match(LAUNCH_SCRIPT, /\^O:\(S-\[0-9-\]\+\|\[A-Za-z\]\{2\}\)/, "the owner is the O: of the SDDL");
 	assert.ok(lines.includes("    $c = $o.ToUpperInvariant()") && lines.indexOf("    $c = $o.ToUpperInvariant()") > sddl, "the owner that is compared is the one read from the folder's SDDL");
-	assert.ok(lines.some((l) => /\$sd = \(Get-Acl -LiteralPath \$env:SB_ACL_DIR\)\.Sddl/.test(l)) && lines.some((l) => l.includes("$o = ''; if ($sd -match '^O:")), "$o comes from $sd, $sd from the folder");
+	assert.ok(lines.some((l) => /\$sd = \[IO\.Directory\]::GetAccessControl\(\$env:SB_ACL_DIR, \[Security\.AccessControl\.AccessControlSections\]::Owner\)\.GetSecurityDescriptorSddlForm/.test(l)) && lines.some((l) => l.includes("$o = ''; if ($sd -match '^O:")), "$o comes from $sd, $sd from the folder");
 	assert.match(LAUNCH_SCRIPT, /\$c -eq 'SY'\) \{ \$c = 'S-1-5-18' \}/);
 	assert.match(LAUNCH_SCRIPT, /LA = '-500'; LG = '-501'; DA = '-512'; DU = '-513'/, "the aliases of ownerProblems");
 	assert.match(LAUNCH_SCRIPT, /if \(\$env:SB_ACL_DIR\) \{\n\s+\$me = /, "only when a check is asked for");

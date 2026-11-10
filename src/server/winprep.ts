@@ -168,11 +168,11 @@ const POWERSHELL = "WindowsPowerShell\\v1.0\\powershell.exe";
  * could imitate. The Constrained Language check comes first, so a machine that locks PowerShell down says so (the word is told as a sentence by `execFailure`). Read by `ownerGate` before the
  * first file is created in an existing folder, and by `secure` where a wrong DACL is about to be changed and the folder was not gated yet.
  */
-const ownerCall = (paths: string[]) => {
+export const ownerCall = (paths: string[]) => {
 	// One line per path: `<index>:<SID>`, or `<index>:-` for a path that is not there. A folder is read with `Directory`, a file with `File`.
 	const script = [PROGRESS_OFF, "$ErrorActionPreference = 'Stop'", CLM_CHECK, "$i = 0", "foreach ($p in ($env:SB_OWNER_DIR -split '\\|')) {",
 		// A path that went away between the existence check and the read (however .NET wraps the error) is "not there"; an error on a path that is still there stops the script and is a failed read.
-		"  $a = $null", "  try { $a = if ([IO.Directory]::Exists($p)) { [IO.Directory]::GetAccessControl($p, [Security.AccessControl.AccessControlSections]::Owner) } elseif ([IO.File]::Exists($p)) { [IO.File]::GetAccessControl($p, [Security.AccessControl.AccessControlSections]::Owner) } else { $null } } catch { if (Test-Path -LiteralPath $p) { throw } }",
+		"  $a = $null", "  try { $a = if ([IO.Directory]::Exists($p)) { [IO.Directory]::GetAccessControl($p, [Security.AccessControl.AccessControlSections]::Owner) } elseif ([IO.File]::Exists($p)) { [IO.File]::GetAccessControl($p, [Security.AccessControl.AccessControlSections]::Owner) } else { $null } } catch { if ([IO.File]::Exists($p) -or [IO.Directory]::Exists($p)) { throw } }",
 		"  if ($a) { \"$($i):\" + $a.GetOwner([Security.Principal.SecurityIdentifier]).Value } else { \"$($i):-\" }", "  $i++", "}"].join("\n");
 	// The paths come in the environment, never quoted into the script: PowerShell reads U+2018 to U+201B as single quotes too, so a path such as `O’Neil` would break (or inject into) the script. `|` cannot be in a Windows path.
 	return { file: POWERSHELL, args: [...POWERSHELL_FLAGS, "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], env: { SB_OWNER_DIR: paths.join("|") } };

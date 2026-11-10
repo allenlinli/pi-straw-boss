@@ -1189,7 +1189,7 @@ export function createTowers(o: TowersOptions): Towers {
 	};
 
 	// Auto mode and the towers (§6): the waits open when it turns on are parked, and a raiser is told once under `wait_parked`.
-	const targets = (): Target[] => [...services.values()].map((l) => ({ workspace: l.record.workspace, label: l.record.label }));
+	const targets = (): Target[] => [...services.values()].map((l) => ({ workspace: l.record.workspace, label: l.record.label, ...(isHeadL(l) ? { head: true as const } : {}) }));
 	const tellParked = async (workspace: string, entry: Entry): Promise<void> => {
 		const raiser = entry.card?.from?.id, reach = services.get(workspace)?.reach;
 		if (raiser && reach) await reach.post(raiser, parkedText(entry.id), "wait_parked", "session", false, undefined, undefined, { wait: entry.id });

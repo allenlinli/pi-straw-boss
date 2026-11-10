@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { type GuiRecord, postServer } from "./handover.ts";
 import { workspaces } from "./herdr.ts";
+import { createBossAnswer } from "./bossanswer.ts";
 import { createBossLink } from "./bosslink.ts";
 import { createBossOpen } from "./bossopen.ts";
 import type { Here } from "./heremark.ts";
@@ -138,7 +139,7 @@ const flat = (units: Unit[]): Unit[] => units.flatMap((u) => [u, ...flat(u.subs)
 
 /** The first pi-straw-boss whose server reads `guarded` on a session's input. */
 const GUARDED_SINCE = "0.61.0";
-export function createBossPaths(kit: Kit, { host, server, closeSelf, post = postServer, read, pollMs, here }: { host: Pick<ReturnType<typeof createHost>, "ensure" | "sessions">; /** Holds the pane's local-only mark while a screen that only this computer may answer waits (heremark.ts). */ here: Here; server?: Pick<ServerLook, "logs">; closeSelf(keepPane: boolean): string | undefined; post?: Post; /** The net as the boss sees it; tests hand one over. */ read?: () => Promise<Net>; /** How often an opening is asked for a trust question (bossopen.ts). */ pollMs?: number }) {
+export function createBossPaths(kit: Kit, { host, server, closeSelf, post = postServer, read, pollMs, here, stream }: { host: Pick<ReturnType<typeof createHost>, "ensure" | "sessions">; /** Holds the pane's local-only mark while a screen that only this computer may answer waits (heremark.ts). */ here: Here; server?: Pick<ServerLook, "logs">; closeSelf(keepPane: boolean): string | undefined; post?: Post; /** The net as the boss sees it; tests hand one over. */ read?: () => Promise<Net>; /** How often an opening is asked for a trust question (bossopen.ts). */ pollMs?: number; /** The net as the page's stream sends it, with each waiting unit's answerable dialog (`/boss answer`); tests hand one over. */ stream?: (r: GuiRecord) => Promise<Net> }) {
 	const { cfg, s, guiDir, tell, me } = kit, lang = (): Lang => memoryLang(cfg.env), t = () => WORDS[lang()];
 	const net = (): Promise<Net> => read ? read() : collectNet({ run: cfg.run, world: cfg.world, sessions: () => host.sessions() });
 	/** The server's recorded GUI; a refusal says why in the boss's words. */
@@ -190,12 +191,15 @@ export function createBossPaths(kit: Kit, { host, server, closeSelf, post = post
 		reply.status === 200 ? tell(said(found.name)) : tell(why(reply), "error");
 	}
 	const more = createBossLink(kit, { record, post, why, confirm, lang, here });
+	const answer = createBossAnswer(kit, { record, post, why, confirm, lang, build: more.build, ...(stream ? { net: stream } : {}) });
 	const open = createBossOpen(kit, { record, post, why, confirm, here, noScreen: () => t().noScreen, lang, baseName: async (id) => (await workspaces(cfg.run).catch(() => [])).find((w) => w.workspace_id === id)?.label, pollMs, extra: more.status });
 
 	return {
 		...open,
 		/** `/boss link …`: confirms, questions, invites, join, create, and leave are bosslink.ts's; status and decide are bossopen.ts's. */
 		link: (rest: string | undefined, cwd = process.cwd()) => (more.handles(rest) ? more.run(rest!, cwd) : open.link(rest)),
+		/** `/boss answer [<name|key> [--cancel | <choice number | text>]]`: lists the dialogs other sessions wait on, or answers one as the page does (bossanswer.ts). */
+		answer,
 		/** The refusal for `/boss stash --workspace` with no value. */
 		needWorkspace: () => tell(t().needWorkspace, "error"),
 		/** `/boss close <name|key>` (or `close all <workspace>` with `onlyBase`): quits another unit, squad, or base after the boss confirms in pi. */

@@ -13,6 +13,7 @@ import type { Alert } from "./alerts.ts";
 import type { Drawer } from "./drawer.ts";
 import type { mountPanels, Tile } from "./layer.ts";
 import type { mountSettings } from "./settings.ts";
+import { mountAutoSwitch } from "./auto.ts";
 import { mountConnect } from "./connect.ts";
 import { MODAL, mountHotkeys } from "./hotkeys.ts";
 import { mountLinkBar } from "./linkbar.ts";
@@ -131,13 +132,14 @@ function icon(n: number, again = false) {
 }
 /** A phone's `⋯` in the header shows only while something is behind it (Dismiss finished, Stashed); when both go, its panel closes. */
 function moreActs() {
-	const none = el("dismiss-all").hidden && el("stashed").hidden && el("head-btn").hidden;
+	const none = el("dismiss-all").hidden && el("stashed").hidden && el("head-btn").hidden && el("auto-sw").hidden;
 	el("bar-more").hidden = none;
 	if (none && el("bar-pop").matches(":popover-open")) el("bar-pop").hidePopover();
 }
 /** Standard's page for a snapshot while it is shown (pagecore.ts says when). */
 function draw(net: Net, fresh: Alert[], now: Map<string, Alert>) {
 	page.stats(net);
+	autoSw.net(net);
 	showDismissAll(el("dismiss-all"), net);
 	showStashed(el("stashed"), el("stashed-list"), net);
 	fillHeadButton(el("head-btn"), net.head, seenAt(), core.current.view === "head" || (core.current.view === "session" && core.current.ws === HEAD_KEY));
@@ -186,6 +188,12 @@ onTheme((shown, parts) => {
 view.onChange((shown) => void showTheme(shown));
 void showTheme(view.view());
 onStep(core.openStep); // the step an accepted answer left (terminalthen.ts)
+// The return panel (autoback.ts, a chunk of its own): read once when the first snapshot arrives, and again at once when this page's own switch ends auto mode; a later snapshot only keeps its cards current.
+let back: Promise<ReturnType<typeof import("./autoback.ts").mountBack>> | undefined;
+const withBack = (call: (b: ReturnType<typeof import("./autoback.ts").mountBack>) => unknown) => void (back ??= import("./autoback.ts").then(({ mountBack, BACK_KEY }) => mountBack(el("auto-back"), { net: () => core.latest, store: { get: () => localStorage.getItem(BACK_KEY), set: (v) => localStorage.setItem(BACK_KEY, v) }, now: Date.now }))).then(call);
+let firstNet = true;
+const backCheck = (net: Net) => (firstNet ? ((firstNet = false), withBack((b) => b.check())) : back && withBack((b) => b.net(net)));
+const autoSw = mountAutoSwitch(el("auto-sw"), { after: () => (el("bar-pop").matches(":popover-open") && el("bar-pop").hidePopover(), withBack((b) => b.check(true))) });
 const linkBar = mountLinkBar(() => openSection("teams"), core.news);
 const notify = mountNotify(core.notified);
 
@@ -279,7 +287,7 @@ const stream = createStream({
 	clearTimeout: (id) => window.clearTimeout(id),
 	random: Math.random,
 	hidden: () => document.hidden,
-	onNet: core.snapshot,
+	onNet: (net) => (core.snapshot(net), backCheck(net)),
 	onStatus: report,
 	replaced: () => fetch("./", { cache: "no-store" }).then((r) => r.status === 403),
 });

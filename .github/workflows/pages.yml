@@ -1,10 +1,11 @@
-name: Demo
+name: Pages
 
-# The browser view's demo (the fixture, no server) on GitHub Pages, rebuilt from every push to main that touches the page.
+# GitHub Pages: the browser view's demo (the fixture, no server) at the root, and the documentation site (site/) under /docs/.
+# Rebuilt from every push to main that touches either.
 on:
   push:
     branches: [main]
-    paths: ["gui/**", "src/**", "package.json", "package-lock.json", ".github/workflows/pages.yml"]
+    paths: ["gui/**", "src/**", "package.json", "package-lock.json", "docs/**", "site/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -21,12 +22,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The site's check reads the history of docs/how-it-works.md to report a stale translation.
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 24
       - run: npm ci
       - name: Build the demo
         run: npm run gui:demo
+      - run: npm ci
+        working-directory: site
+      - name: Check the zh-TW translation of how-it-works
+        run: npm run check
+        working-directory: site
+      - name: Build the documentation site
+        run: npm run build
+        working-directory: site
+      - name: Put the site under the demo
+        run: cp -R site/dist dist/demo/docs
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:

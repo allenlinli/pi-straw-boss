@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.astro/
+public/img/
+# Generated from docs/ by scripts/sync.mjs
+src/content/docs/reference/how-it-works/
+src/content/docs/zh-tw/reference/how-it-works/
+src/content/docs/guide/unattended-device.md
+src/content/docs/zh-tw/guide/unattended-device.md
+src/content/docs/releases/

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type OpenCall, type Pending, type Relayed, SEVERAL } from "./ask.ts";
+import { type OpenCall, type Pending, type Relayed, SECRET, SEVERAL } from "./ask.ts";
 import type { Ack, AnswerMessage, Bridge, CloseResult, Dialogs, FormMessage, FormReply, LocalHub, ToHub } from "./bridge.ts";
 import { guiNamespace, MAX_QUEUED, QUEUED_TEXT, REGISTER } from "./bridgewire.ts";
 import { answerOk, type BlockAnswer, createCaps, type Doc, docsOf, type Fields, fieldsOk, type FormResult, type Shelf } from "./documents.ts";
@@ -179,7 +179,7 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 		const d = ds[0]!, adapter = OWNERS.find((o) => o.name === d.owner), base = file ?? { callId: d.toolCallId ?? d.id, tool: adapter?.tool ?? "dialog" }, at = bound.get(key)!;
 		const terminal = (why: string): Pending => ({ ...base, why });
 		// A secret_drop open anywhere, or a secret dialog, keeps everything in the terminal (SB-F001).
-		if (d.secret || file?.tool === "secret_drop" || calls.some((c) => c.name === "secret_drop")) return file?.tool === "secret_drop" ? file : terminal("It waits for a secret.");
+		if (d.secret || file?.tool === "secret_drop" || calls.some((c) => c.name === "secret_drop")) return file?.tool === "secret_drop" ? file : terminal(SECRET);
 		if (ds.length !== 1) return terminal(SEVERAL);
 		if (d.big) return terminal("It is too long to show here; answer it in the terminal.");
 		// A dialog naming a tool call answers only for one of the open calls: of its owner's own tool, or of any tool when the owner is a gate (which must name one).

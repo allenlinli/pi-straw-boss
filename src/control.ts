@@ -96,7 +96,7 @@ export interface TowerPanel {
 	isHead?(workspace: string): boolean;
 }
 /** Auto mode's panel (server/autoops.ts): the switch, the head's pending `on` and its confirm, all the server's own state. A write here is the boss's own act (the page's token and CSRF, a paired phone too); an operate session never reaches it. */
-export interface AutoPanel { /** What the page snapshot carries (net.ts `AutoSnap`): undefined when auto mode is off and nothing waits. */ snap(): { on: boolean; since?: string; pending?: { id: string; said: string; expires: number } } | undefined; state(): Reply; set(on: boolean, remote: boolean): Reply; confirm(id: unknown, remote: boolean): Reply }
+export interface AutoPanel { /** What the page snapshot carries (net.ts `AutoSnap`): undefined when auto mode is off and nothing waits. */ snap(): { on: boolean; since?: string; pending?: { id: string; said: string; expires: number } } | undefined; /** Whether this server can switch auto mode at all (not an unattended device): the page shows its chip only then. */ available(): boolean; state(): Reply; /** The last return list, or `{ report: null }` (the page's return panel). */ report(): Reply; set(on: boolean, remote: boolean): Reply; confirm(id: unknown, remote: boolean): Reply }
 /** What a paired device may ask: read the state, answer a forwarded confirm or dialog, and ask a box to stop one main (a graceful stop the box decides on; docs/specs/2026-11-07-link-remote-stop.md, decision 10). Everything else changes who may command this computer, so only its own page does it. */
 const REMOTE_LINK = ["state", "confirm-answer", "dialog-answer", "unit-stop"];
 const LINK_NAMES = ["enable", "state", "create", "invite", "invite-text", "invite-cancel", "decide", "join-start", "join-project", "join-cancel", "prefill-clear", "remove", "role", "rotate", "trust", "leave", "confirm-answer", "dialog-answer", "unit-stop", "operate", "operate-off", "operate-on"];
@@ -169,7 +169,7 @@ export function checkText(text: unknown): string | Reply {
 
 const OVERLAY_OPEN = "A /boss gui lan screen is open in this session; only Escape can be sent to it from a paired device.";
 /** Boss commands that manage pairing, remote access, Wi-Fi, or the server: a paired device's composer and a new session's first message never run them, nor `gui view <mode>` (the local page and the terminal do). A slip guard, not a boundary: the key pad's terminal keys are not filtered. */
-const BOSS_LOCAL = /^\s*\/boss\s+(gui\s+(stop|rotate|remote|lan|devices|unpair|view\s+\S+)|server|lan|link\s+decide)(?=\s|$)/;
+const BOSS_LOCAL = /^\s*\/boss\s+(gui\s+(stop|rotate|remote|lan|devices|unpair|view\s+\S+)|server|lan|answer|link\s+decide)(?=\s|$)/;
 /** The Straw Link subcommands that change who may command this computer or answer for it (bosslink.ts), and the ones that show a credential or a teammate's call: the same slip guard as `link decide`. `link` and `link status` stay readable. */
 const BOSS_LINK_LOCAL = /^\s*\/boss\s+link\s+(on|confirms?|asks|answer|invite|join|create|leave|operate)(?=\s|$)/;
 const BOSS_OPEN = /^\s*\/boss\s+open\s+([\s\S]*)$/, BOSS_SEND = /^\s*\/boss\s+send(?=\s|$)([\s\S]*)$/;
@@ -179,7 +179,7 @@ export const localOnlyText = (text: string): boolean => {
 	const inner = parseOpen(BOSS_OPEN.exec(text)?.[1])?.text ?? parseSend(BOSS_SEND.exec(text)?.[1])?.text;
 	return inner !== undefined && localOnlyText(inner);
 };
-const LOCAL_ONLY = "Pairing, remote access, Wi-Fi, the server, the default view, and deciding a join request are managed on this computer's own page or terminal, not from a paired device.";
+const LOCAL_ONLY = "Pairing, remote access, Wi-Fi, the server, the default view, deciding a join request, and answering another session's dialog are managed on this computer's own page or terminal, not from a paired device.";
 /** What a guarded post from this computer is refused with: the boss typed a /boss send here, and the server holds it to the guards a remote write meets because the session it runs in may have been typed into from elsewhere. */
 const GUARDED = "A /boss send is held to the guards of a remote write (the session it runs in may be driven from elsewhere): this needs this computer's own page, or type it in that session's own terminal.";
 const LINK_LOCAL = "While it waits on a link request, a paired device can only send Escape; approve it on this computer's own page or terminal.";
@@ -259,7 +259,7 @@ export function createControl({ auto, board, bridge, lan, overlay, link, server:
 			if (!auto) return no(503, "unavailable", "This server has no auto mode.");
 			if (operate) return no(403, "local_only", "Auto mode is switched at the computer or on a paired phone, never from a box.");
 			if (!key && !action) return typeof json.on === "boolean" ? auto.set(json.on, remote) : json.on === undefined ? auto.state() : no(400, "bad_request", "on is true or false.");
-			return key === "confirm" && !action ? auto.confirm(json.id, remote) : no(404, "not_found", "No such action.");
+			return key === "report" && !action ? auto.report() : key === "confirm" && !action ? auto.confirm(json.id, remote) : no(404, "not_found", "No such action.");
 		}
 		if (scope === "board") return board && key === "clear" && !action ? board.clear(json) : no(board ? 404 : 503, board ? "not_found" : "unavailable", board ? "No such action." : "This server shows no work board.");
 		if (scope === "doc") return docs && action === "answer" ? docs.answer(key, json) : no(docs ? 404 : 503, docs ? "not_found" : "unavailable", docs ? "No such action." : "This server shows no documents.");

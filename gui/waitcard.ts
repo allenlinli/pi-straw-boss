@@ -3,7 +3,7 @@ import type { BossWait, WaitCardView, WaitPressView } from "../src/net.ts";
 import { type Alert, unitOf } from "./alerts.ts";
 import type { SessionPost } from "./answer.ts";
 import { joined, outcome, type WaitActions, waitActions } from "./asks.ts";
-import { h } from "./dom.ts";
+import { h, nodes } from "./dom.ts";
 import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 import { aim, text, waitTitle } from "./render.ts";
@@ -170,6 +170,7 @@ export function waitCard(o: WaitCardOptions) {
 		root.dataset.phase = phase();
 		root.dataset.folded = String(folded);
 		root.dataset.pressed = String(Boolean(w.press && w.press.act !== "secret"));
+		root.dataset.parked = String(Boolean(md.parked));
 		root.dataset.step = String(md.step ?? "");
 		skip.hidden = md.buttons.every((b) => b.id !== "skip");
 		skip.disabled = Boolean(md.buttons.find((b) => b.id === "skip")?.disabled); // the dock puts Skip in its footer, outside the buttons drawn here: it goes off with them
@@ -178,10 +179,10 @@ export function waitCard(o: WaitCardOptions) {
 		const held = globalThis.document.activeElement as HTMLElement | null, keep = held && acts.contains(held) ? (held.dataset.act ? `${held.dataset.act}:${held.dataset.option ?? ""}` : undefined) : undefined;
 		// The head: a row's folded line (tag, what to do, who raised it; a tap unfolds the rest), else the tag and the raiser above the parts.
 		if (o.host === "row") {
-			const fold = h("button", { type: "button", class: "wc-fold", "aria-expanded": String(!folded) }, h("b", { class: "wc-tag" }, md.tag), h("span", { class: "wc-do", lang }, doText), h("small", { class: "wc-raised" }, md.raised));
+			const fold = h("button", { type: "button", class: "wc-fold", "aria-expanded": String(!folded) }, h("b", { class: "wc-tag" }, md.tag), md.parked ? h("small", { class: "wc-parked" }, md.parked) : null, h("span", { class: "wc-do", lang }, doText), h("small", { class: "wc-raised" }, md.raised));
 			fold.onclick = () => ((folded = !folded), render());
 			head.replaceChildren(fold);
-		} else head.replaceChildren(h("b", { class: "wc-tag" }, md.tag), h("small", { class: "wc-raised" }, md.raised));
+		} else head.replaceChildren(...nodes(h("b", { class: "wc-tag" }, md.tag), md.parked ? h("small", { class: "wc-parked" }, md.parked) : null, h("small", { class: "wc-raised" }, md.raised)));
 		parts.hidden = folded;
 		parts.replaceChildren(...md.parts.map((p) => partEl(p, lang)));
 		state.textContent = md.line;

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { LAUNCH_SCRIPT } from "../src/server/breakaway.ts";
-import { ACL_SCRIPT, ACL_TOKEN, aclCommand, ownerProblems, plainStderr, aclMarkerPath, AclError, aclProblems, applyAcl, asciiLine, awaitAclMarker, execFailure, messageLine, type Exec, fileProblems, folderProblems, parseAclOutput, parseSddl, readMarker, scriptWords, CLM_TEXT, SYSTEM_SID } from "../src/server/acl.ts";
+import { ACL_SCRIPT, ACL_TOKEN, START_OF_PS, aclCommand, ownerProblems, plainStderr, aclMarkerPath, AclError, aclProblems, applyAcl, asciiLine, awaitAclMarker, execFailure, messageLine, type Exec, fileProblems, folderProblems, parseAclOutput, parseSddl, readMarker, scriptWords, CLM_TEXT, SYSTEM_SID } from "../src/server/acl.ts";
 
 // docs/specs/2026-10-26-sb-backend.md, The control socket: on Windows the state directory gets an owner-and-SYSTEM ACL, set and checked by SID in one PowerShell start.
 // Windows is not run here: these pin the command and the SDDL reading.
@@ -38,9 +38,9 @@ test("N3: applyAcl tells a failed PowerShell by its stderr's last line and exit 
 test("the script reads the owner's SID, grants the owner and SYSTEM by SID, inherits nothing, and reads every SDDL back", () => {
 	assert.match(ACL_SCRIPT, /WindowsIdentity\]::GetCurrent\(\)\.User\.Value/);
 	assert.match(ACL_SCRIPT, /& \$icacls \$dir \/inheritance:r \/grant:r "\*\$\{sid\}:\(OI\)\(CI\)F" '\*S-1-5-18:\(OI\)\(CI\)F' \| Out-Null/);
-	assert.match(ACL_SCRIPT, /Get-Acl -LiteralPath \$dir\)\.Sddl/);
+	assert.match(ACL_SCRIPT, /dir = \(Sddl \$dir\)/, "the folder's own SDDL is read through .NET (`Sddl`), not Get-Acl");
 	for (const name of ["server.json", "server.lock", "server.log", "gui.json", "paired.json", "gui-secrets.json", "lan-ca.json", "lan.json", "link"]) assert.ok(ACL_SCRIPT.includes(name), name);
-	assert.match(ACL_SCRIPT, /ConvertTo-Json -Compress/);
+	assert.match(ACL_SCRIPT, /\$json = ToJson \$out/);
 	assert.ok(!/\$sid:/.test(ACL_SCRIPT), "$sid: would be read as a variable in a scope named sid");
 });
 
@@ -77,7 +77,7 @@ test("the folder is protected first and without /T, then everything already in i
 	assert.match(ACL_SCRIPT, /'server\.json', 'server\.lock', 'server\.log'/);
 });
 
-test("R-F001 timing guard: no process is started per item, so the script's cost does not grow with the number of files (a loop body runs in-process: Get-Acl, Test-Path, Join-Path)", () => {
+test("R-F001 timing guard: no process is started per item, so the script's cost does not grow with the number of files (a loop body runs in-process: Sddl, Present, [IO.Path]::Combine)", () => {
 	const bodies = loopBodies(ACL_SCRIPT);
 	assert.ok(bodies.length >= 2, "the loops are found (the file list and the read-back)");
 	for (const body of bodies) assert.ok(!SPAWNS.test(body), `a loop body spawns a process: ${body}`);
@@ -87,19 +87,20 @@ test("R-F001 timing guard: no process is started per item, so the script's cost 
 });
 
 test("R-F001: the read-back covers secondary slots' server.json (it holds that slot's secret), the files at the top, and link/ below", () => {
-	assert.match(ACL_SCRIPT, /Join-Path \$dir 'servers'/);
+	assert.match(ACL_SCRIPT, /\$servers = \[IO\.Path\]::Combine\(\$dir, 'servers'\)/);
 	assert.match(ACL_SCRIPT, /\$tree\.files \| Where-Object \{ \$_\.StartsWith\(\$servers \+ '\\'\) -and \[IO\.Path\]::GetFileName\(\$_\) -eq 'server\.json' \}/);
 	assert.match(ACL_SCRIPT, /\$tree\.files \| Where-Object \{ \$_\.StartsWith\(\$link \+ '\\'\) \}/);
 });
 
 test("a file that is gone while the script runs (a temp file renamed into place) is not a failure, any other read error is", () => {
-	assert.match(ACL_SCRIPT, /catch \{ if \(Test-Path -LiteralPath \$p\) \{ throw \} \}/);
+	assert.match(ACL_SCRIPT, /catch \{ if \(Present \$p\) \{ throw \} \}/);
 	// The reset's own exit code is not the check (an item gone meanwhile, an empty folder): the read-back is.
 	assert.ok(!ACL_SCRIPT.split("\n").some((l, i, all) => all[i - 1]?.includes("/reset") && l.includes("$LASTEXITCODE")));
 });
 
 test("the same PowerShell start tells the server's start time (Win32_Process.CreationDate in the form startof.ts uses), from its pid in the environment, and a failure there leaves it null", () => {
-	assert.match(ACL_SCRIPT, /Get-CimInstance Win32_Process -Filter "ProcessId=\$\(\$env:SB_ACL_PID -as \[int\]\)"\)\.CreationDate\.ToUniversalTime\(\)\.ToString\('yyyy-MM-ddTHH:mm:ss\.fffZ', \[cultureinfo\]::InvariantCulture\)/);
+	assert.ok(ACL_SCRIPT.split("\n").includes(START_OF_PS), "StartOf reads Win32_Process.CreationDate through [wmisearcher], in the form startof.ts uses");
+	assert.match(ACL_SCRIPT, /try \{ \$started = StartOf \(\$env:SB_ACL_PID -as \[int\]\) \} catch \{ \}/);
 	assert.match(ACL_SCRIPT, /\$started = \$null\ntry \{ \$started = .*\} catch \{ \}/);
 	assert.match(ACL_SCRIPT, /started = \$started/);
 	assert.equal(aclCommand("C:\\s", { PATH: "p" }, 5000, 4321).options.env.SB_ACL_PID, "4321");
@@ -332,9 +333,9 @@ test("R8-F003: the script lists what is below WITHOUT following links, refuses a
 		assert.ok(!/Get-ChildItem/.test(script), "Windows PowerShell 5.1 follows junctions with it");
 		assert.match(script, /\[IO\.Directory\]::GetFileSystemEntries\(\$here\)/);
 		// R9: only a name-surrogate link (junction, symbolic link) is refused; a cloud placeholder (OneDrive) is a reparse point that is walked as an ordinary file or folder.
-		assert.match(script, /if \(\(\$a -band \[IO\.FileAttributes\]::ReparsePoint\) -ne 0\) \{ \$kind = \$null; try \{ \$kind = \(Get-Item -LiteralPath \$e -Force -ErrorAction Stop\)\.LinkType \} catch \{ throw \('sb-reparse-point ' \+ \$e\) \}; if \(\$kind -eq 'Junction' -or \$kind -eq 'SymbolicLink'\) \{ throw \('sb-reparse-point ' \+ \$e\) \} \}/);
+		assert.match(script, /if \(\(\$a -band \[IO\.FileAttributes\]::ReparsePoint\) -ne 0\) \{ \$kind = \$null; try \{ if \(\$isDir\) \{ \$info = \[IO\.DirectoryInfo\]::new\(\$e\) \} else \{ \$info = \[IO\.FileInfo\]::new\(\$e\) \}; if \(\$info\.PSObject\.Properties\['LinkType'\]\) \{ \$kind = \$info\.LinkType \} else \{ \$kind = \(Get-Item -LiteralPath \$e -Force -ErrorAction Stop\)\.LinkType \} \} catch \{ throw \('sb-reparse-point ' \+ \$e\) \}; if \(\$kind -eq 'Junction' -or \$kind -eq 'SymbolicLink'\) \{ throw \('sb-reparse-point ' \+ \$e\) \} \}/);
 		// R9-F004: a folder that vanished is skipped, one that is there and cannot be listed is thrown.
-		assert.match(script, /catch \{ if \(Test-Path -LiteralPath \$here\) \{ throw \}; continue \}/);
+		assert.match(script, /catch \{ if \(Present \$here\) \{ throw \}; continue \}/);
 		const lines = script.split("\n").map((l) => l.trim());
 		const walk = lines.findIndex((l) => l.startsWith("$tree = Walk $dir")), owner = lines.findIndex((l) => /\/setowner/.test(l)), reset = lines.findIndex((l) => /\/reset/.test(l));
 		assert.ok(walk > 0 && walk < owner && owner < reset, `${walk} ${owner} ${reset}`);
@@ -414,9 +415,9 @@ test("R11-F001, R13: both ACL scripts check the folder's own owner before /inher
 		assert.match(w, /\[IO\.File\]::GetAccessControl\(\$e, \$own\)/);
 		assert.match(w, /GetOwner\(\[Security\.Principal\.SecurityIdentifier\]\)\.Value/);
 		assert.match(w, /\$who -ne \$sid -and \$okOwners -notcontains \$who\) \{ throw \('the ' \+ \$e \+ ' belongs to another account \(' \+ \$who \+ '\), not to ' \+ \$sid \+ ' \(nothing was changed\)'\)/);
-		assert.match(w, /catch \{ if \(Test-Path -LiteralPath \$e\) \{ throw \}; continue \}/, "an entry that vanished is skipped");
+		assert.match(w, /catch \{ if \(Present \$e\) \{ throw \}; continue \}/, "an entry that vanished is skipped");
 		assert.ok(!/Get-Acl/.test(w), "no provider cmdlet per entry");
 		assert.ok(lines.some((l) => /^function Sddl/.test(l) && /GetSecurityDescriptorSddlForm/.test(l)), "the read-back reads each SDDL through .NET, not Get-Acl per entry");
 	}
-	assert.equal((ACL_SCRIPT.match(/Get-Acl/g) ?? []).length, 1, "Get-Acl is left for the folder itself");
+	assert.equal((ACL_SCRIPT.match(/Get-Acl/g) ?? []).length, 0, "the folder's own SDDL is read by `Sddl` too: Get-Acl is a module cmdlet (todo #132)");
 });

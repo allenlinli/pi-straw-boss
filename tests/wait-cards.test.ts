@@ -270,6 +270,14 @@ test("memorySummary: a card wait carries its card and, after a press, the press;
 	assert.deepEqual([legacy!.card, legacy!.press, legacy!.cut], [undefined, undefined, undefined]);
 });
 
+test("a card the budget cuts keeps the auto mode flags: a parked or listed wait stays silent (AG-F003)", () => {
+	const sums: MemorySummary[] = Array.from({ length: 4 }, (_, t) => memorySummary(memWith(12, FULL, NOW + t * 100_000)));
+	sums.flatMap((s) => s.bossWaits).forEach((w, i) => void Object.assign(w, i % 2 ? { parked: true } : { listed: true }));
+	const cutOnes = cutCards(sums).flatMap((s) => s.bossWaits).filter((w) => w.cut);
+	assert.ok(cutOnes.length > 0);
+	for (const w of cutOnes) assert.equal(Boolean(w.parked) !== Boolean(w.listed), true, `${w.id} keeps exactly its flag`);
+});
+
 test("the budget: whole cards newest first across towers while their text sum is at most CARD_TEXTS; the rest go as { id, text, at, cut } and a cut card has its text; measured on 12 waits x 10 towers at every cap", () => {
 	const sums: MemorySummary[] = Array.from({ length: 10 }, (_, t) => memorySummary(memWith(12, FULL, NOW + t * 100_000)));
 	const raw = JSON.stringify(sums).length;

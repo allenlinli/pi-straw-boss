@@ -243,7 +243,7 @@ test("R13d: a look does not start a read of the start time at every turn while t
 		// The first read (the cache is warmed) answers; every later one hangs, as a PowerShell does on a machine too busy to answer.
 		const reads: number[] = [];
 		const launch = (_file: string, args: string[], _options: unknown, done: (error: Error | null, stdout: string) => void) => {
-			reads.push(Number(/ProcessId=(\d+)/.exec(args.at(-1)!)?.[1]));
+			reads.push(Number(/; StartOf (\d+)$/.exec(args.at(-1)!)?.[1]));
 			if (reads.length === 1) queueMicrotask(() => done(null, ISO));
 		};
 		const starts = createStartOf({ platform: "win32", launch });

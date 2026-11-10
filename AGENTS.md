@@ -2,6 +2,12 @@
 
 `README.md` describes the extension, `docs/how-it-works.md` its behavior, and `docs/specs/` the design records. Run `npm run check` and `npm test` before handing over a change.
 
+## Docs
+
+- `README.md` and `README.zh-TW.md` stay short: the pitch, install, quick start, and the common commands. Every tool and `/boss` command goes in `site/src/content/docs/reference/commands.md` and its twin under `site/src/content/docs/zh-tw/`; a user-facing feature gets its guide page there in both languages.
+- `site/` is the Starlight documentation site, served at https://wayne930242.github.io/pi-straw-boss/docs/ under the GUI demo by `.github/workflows/pages.yml`. `site/scripts/sync.mjs` generates its how-it-works, unattended-device, and release pages from `docs/`, so `docs/` stays the one source; keep `docs/how-it-works.md` anchors stable, since `src/` and the release notes link to them. `cd site && npm ci && npm run build` validates every internal link and anchor.
+- `docs/how-it-works.zh-TW.md` mirrors `docs/how-it-works.md` line for line, and its first line names the English commit it matches. A change to the English file changes the same lines of the twin and moves that commit, or leaves the drift for a batch pass; `npm --prefix site run check` lists the English commits not yet translated and fails when the headings no longer match.
+
 ## Tests
 
 - `npm test` runs the suite and `npm run test:one -- tests/x.test.ts` one file (not a bare `node --test`): both load `tests/setup.ts` first, which gives each test process (a test file runs in its own) a temp root of its own for HOME, USERPROFILE, and the agent folder, drops the Herdr pane, intercom identity, and subagent role of the shell it runs from, and points `HERDR_SOCKET_PATH` at a path nobody listens on. Without it a session's look in a test could start a real detached sb server in `~/.pi/agent/straw-boss` and leave it running. A refusal of that guard inside a test process fails the process when it ends, unless the test that asserts it on purpose takes the record (`consumeRefusals()` in `src/server/testguard.ts`); give a session the world's `sw.ctx()` (`sw.server()`) instead of letting it be refused. The run also fails when an entry is new at the top of the checkout (or of the folder it ran in) after it, or when a `~` is there at all: `npm test` or `pretest` run by a shell whose HOME is empty or `~` writes npm's cache and logs to a literal `./~/.npm`, which the tests cannot prevent but flag (`strays` in `tests/isolation.ts`); fix HOME and remove the folder.

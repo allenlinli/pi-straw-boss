@@ -13,8 +13,8 @@ export const briefLine = (since: string | undefined): string =>
 export const parkedText = (id: string): string => `Wait ${id} is parked: the boss is away (auto mode). Do not wait on it; its answer comes as a wait_card message when they are back.`;
 
 /** A tower's workspace as the memory files know it (the head's is its own workspace, bound to its folder). */
-export interface Target { workspace: string; label: string }
-export interface ParkedRow { workspace: string; tower: string; id: string; text: string; type: string; from?: string; at: string }
+export interface Target { workspace: string; label: string; /** The head tower's own memory (its wait ids are counted apart from the towers'). */ head?: true }
+export interface ParkedRow { workspace: string; /** Set for the head's rows: a wait id alone does not tell the head's W1 from a tower's. */ head?: true; tower: string; id: string; text: string; type: string; from?: string; at: string }
 
 const waitsForBoss = (e: Entry) => e.kind === "wait" && e.for === "boss" && (e.state === "open" || e.state === "answered");
 
@@ -33,15 +33,15 @@ export function parkOpen(slot: Slot, now: number, targets: Target[]): { target: 
 export function parkedRows(slot: Slot, now: number, targets: Target[]): ParkedRow[] {
 	return targets.flatMap((t) => {
 		const { memory, problem } = readMemory(slot, t.workspace, now);
-		return problem ? [] : memory.entries.filter((e) => waitsForBoss(e) && e.parked).map((e) => ({ workspace: t.workspace, tower: t.label, id: e.id, text: e.text.slice(0, 160), type: e.card?.type ?? "legacy", ...(e.card?.from ? { from: e.card.from.name } : {}), at: e.at }));
+		return problem ? [] : memory.entries.filter((e) => waitsForBoss(e) && e.parked).map((e) => ({ workspace: t.workspace, ...(t.head ? { head: true as const } : {}), tower: t.label, id: e.id, text: e.text.slice(0, 160), type: e.card?.type ?? "legacy", ...(e.card?.from ? { from: e.card.from.name } : {}), at: e.at }));
 	});
 }
-/** The period is over: a parked flag lived for it only, so the cards are ordinary open waits again. */
+/** The period is over: a parked flag lived for it only, so the cards are ordinary open waits again. A wait the return list showed keeps `listed`: the panel is its one notice, so it raises no alert, sound or count again (boss decision 11-10); it stays on its card. */
 export function unpark(slot: Slot, now: number, targets: Target[]): void {
 	for (const t of targets) {
 		const probe = readMemory(slot, t.workspace, now);
 		if (probe.problem || !probe.memory.entries.some((e) => e.parked)) continue;
-		updateMemory(slot, t.workspace, now, (m) => void m.entries.forEach((e) => { delete e.parked; delete e.parkedTold; }));
+		updateMemory(slot, t.workspace, now, (m) => void m.entries.forEach((e) => { if (e.parked && waitsForBoss(e)) e.listed = true; delete e.parked; delete e.parkedTold; }));
 	}
 }
 

@@ -1,0 +1,56 @@
+---
+title: pi-straw-boss
+description: Many pi agents, one project, no collisions.
+template: splash
+hero:
+  tagline: Many pi agents, one project, no collisions. A main agent per Herdr tab, a tower per workspace, and a live view of who is doing what.
+  image:
+    html: '<img src="/pi-straw-boss/docs/img/straw-net-gui.png" alt="The straw net in the browser: bases with their towers, agents, and subagents in live states" />'
+  actions:
+    - text: Get started
+      link: /pi-straw-boss/docs/guide/install/
+      icon: right-arrow
+    - text: Try the live demo
+      link: https://wayne930242.github.io/pi-straw-boss/
+      icon: external
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/wayne930242/pi-straw-boss
+      icon: github
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+Run a few agents on the same project and they start stepping on each other: two dev servers on one port, two branches editing the same migration, and no agent knows the others exist.
+pi-straw-boss is a [pi](https://github.com/earendil-works/pi) extension that lets them find each other and coordinate, without a scheduler or a new service.
+
+<CardGrid>
+	<Card title="Everyone joins" icon="puzzle">
+		Each pi in [Herdr](https://herdr.dev) joins its tab's net at start. An agent whose work grows becomes the tab's main agent; a tower opens per workspace when agents start to collide.
+	</Card>
+	<Card title="Towers coordinate" icon="random">
+		A tower routes work between the mains of its workspace and talks to the other towers. Your own head tower takes your instructions and hands each to the workspace that owns it.
+	</Card>
+	<Card title="See the whole net" icon="laptop">
+		`/boss gui` shows every workspace, agent, and subagent live in the browser, and lets you answer what they wait on, from a desktop or a paired phone.
+	</Card>
+	<Card title="Merge trains" icon="rocket">
+		A project can batch its reviewed branches into trains: one review and one run of the heavy gates per train, then deploy and one acceptance page.
+	</Card>
+	<Card title="Across computers" icon="external">
+		Straw Link connects the towers of teammates' computers, and an unattended build box can take work from them.
+	</Card>
+	<Card title="While you are away" icon="moon">
+		Auto mode: tell the head tower you are going to sleep, and no agent waits on you until you are back; what needed you comes back as one list.
+	</Card>
+</CardGrid>
+
+## Read next
+
+<CardGrid>
+	<LinkCard title="Install" href="/pi-straw-boss/docs/guide/install/" description="One command, plus Herdr and pi-intercom." />
+	<LinkCard title="Quick start" href="/pi-straw-boss/docs/guide/quick-start/" description="Four commands to see the net work." />
+	<LinkCard title="Concepts" href="/pi-straw-boss/docs/guide/concepts/" description="Members, mains, towers, the head tower, and the work board." />
+	<LinkCard title="Commands" href="/pi-straw-boss/docs/reference/commands/" description="Every tool and /boss command." />
+</CardGrid>

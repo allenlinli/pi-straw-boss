@@ -735,7 +735,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// The board demo (todo #135; measured): 779 to 781 (+2 in fixture.ts: the `?board` call and its import, with the head tower's `talk` state). The rows and the two answers are gui/demo-board.ts, a file of its own.
 	// Auto mode phase 2 (todo #140 task 5b; measured): 781 to 783 (+2 in fixture.ts: the `?auto=on|back` call and its import). The states and the routes' stand-in are gui/demo-auto.ts, a file of its own.
 	// Wait cards on the question panel (todo #144 task 5; measured): 783 to 797 (+14: demo-waits.ts's head tower card, `headCardWait`, with its words in both languages, and the line in fixture.ts that puts it on the head's memory under `?waits=cards&head=<state>`).
-	assert.ok(demo <= 797, `the demo fixture has ${demo} lines`);
+	// Kinds on the page (todo #152; measured): 797 to 799 (+2 in fixture.ts: the `?kinds` call and its import; the units' kinds ride on the lines that make them). The scene is gui/demo-kinds.ts, a file of its own.
+	assert.ok(demo <= 799, `the demo fixture has ${demo} lines`);
 	// The trains' demo (todo #125 task 7; measured): +2 in fixture.ts (the `?trains=` call and the train units that never ask a question on the demo's clock). The states themselves are gui/demo-trains.ts, a file of its own.
 	// Head tower H5 to 387 (+3 over 384): the strip's `?zen=head|head-open|head-history` states (the quiet net, the Enter and H presses, the draft), and a message to the head answered with its working mark (demo-head.ts holds the words).
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
@@ -953,7 +954,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Wait cards review fixes (todo #145; measured) 9042 to 9046 (+4: the Enter step of the reason box, the tab stop, the ended Send, the fold's pick, the head word of a reply).
 	// Kinds and tower runs on the ally view (todo #150; measured) 9046 to 9071 (+25: allyunits.ts's kind word and the tower's tooltip, box.ts's two run folds, linkmodel.ts's kind and run word, the demo scenes' kinds). Cap = measured.
 	// Kinds on the page (todo #152; measured) 9071 to 9085 (+14: icons.ts's role-icon map, `kindIcon` and `unitIcon` (render.ts re-exports them), the kind passed to each plate, and the ally row's icon). Cap = measured.
-	assert.ok(page <= 9085, `the page's TypeScript has ${page} lines`);
+	// The kinds demo (todo #152; measured) 9085 to 9100 (+15: gui/demo-kinds.ts, the `?kinds` scene, and the demo fixture's call to it). Cap = measured.
+	assert.ok(page <= 9100, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).

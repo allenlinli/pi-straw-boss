@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
 import { afterEach, test } from "node:test";
 import type { ViewEntry } from "../src/memorycmd.ts";
+import { createPick } from "../src/towerprompt/pick.ts";
 import { type Locale, textsFor } from "../src/towerprompt/messages.ts";
 import { runPrompt } from "../src/towerprompt/prompt.ts";
 import type { PickSource, PollAnswer, Polled, PromptSource } from "../src/towerprompt/source.ts";
@@ -30,6 +31,8 @@ class FakePick implements PickSource {
 	opened = 0;
 	closed = 0;
 	refuse: Error | undefined;
+	/** The mark is not open until this is released. */
+	gate: Promise<void> | undefined;
 	/** A press waits for this before it answers. */
 	hold: Promise<void> | undefined;
 	pressStatus = 200;
@@ -48,6 +51,7 @@ class FakePick implements PickSource {
 		return { answered: answers };
 	}
 	async here<T>(fn: () => Promise<T>): Promise<T> {
+		await this.gate;
 		if (this.refuse) throw this.refuse;
 		this.opened++;
 		try {
@@ -329,6 +333,55 @@ test("a paste is no pick: a bracketed paste, or lines that arrive together, end 
 		p.input.write("\x04");
 		await ended(p.done);
 	}
+});
+
+test("a paste or a leave while the mark is still opening ends the mode for good: no list, no key is taken, the mark is dropped, and the boss's next line is a message", async () => {
+	const source = new FakeSource(), pick = source.pick!;
+	pick.towers = [tower([card("W1", { type: "secret", secret: { name: "KEY" } }), card("W2")])];
+	let open!: () => void;
+	pick.gate = new Promise<void>((resolve) => (open = resolve));
+	const p = terminal(source);
+	await until(() => p.text().includes("tower> "), "the prompt");
+	p.input.write("/wait\r");
+	await new Promise((r) => setTimeout(r, 40)); // the mark is being opened
+	p.input.write("\x1b[200~1\x1b[201~\r");
+	await new Promise((r) => setTimeout(r, 40));
+	open();
+	await until(() => p.text().includes("a paste is not a pick; nothing was pressed"), "the paste");
+	await until(() => pick.closed === 1, "the mark is dropped");
+	await until(() => p.text().slice(p.text().lastIndexOf("a paste is not a pick")).includes("tower> "), "the prompt comes back");
+	assert.equal(pick.reads, 0, "the cards are never listed");
+	assert.equal(p.text().includes("Waits for you"), false);
+	p.input.write("1\r");
+	await until(() => source.posted.length === 1, "a digit is a message again");
+	p.input.write("1\r");
+	await until(() => source.posted.length === 2, "and again");
+	assert.deepEqual(pick.pressed, [], "nothing is pressed without the mark");
+	assert.equal(pick.opened, 1);
+	assert.equal(pick.closed, 1);
+	p.input.write("\x04");
+	await ended(p.done);
+});
+
+test("stop while the mark is still opening: the mode stays ended, the cards are not read or listed, and the mark is dropped", async () => {
+	const pick = new FakePick(), lines: string[] = [], modes: boolean[] = [];
+	pick.towers = [tower([card("W1"), card("W2")])];
+	let open!: () => void;
+	pick.gate = new Promise<void>((resolve) => (open = resolve));
+	const mode = createPick({ source: pick, locale: "en", say: (l) => void lines.push(l), mode: (on) => void modes.push(on), now: () => NOW });
+	const started = mode.start();
+	await new Promise((r) => setTimeout(r, 20));
+	assert.equal(mode.active(), true);
+	const stopped = mode.stop();
+	open();
+	await Promise.all([started, stopped]);
+	assert.equal(mode.active(), false);
+	assert.equal(pick.reads, 0);
+	assert.deepEqual(lines, []);
+	assert.deepEqual(modes, [true, false]);
+	assert.equal(pick.closed, 1);
+	await mode.line("1");
+	assert.deepEqual(pick.pressed, []);
 });
 
 test("a run that starts in pick mode drops it: what is on the line is not posted, the prompt says where the cards are now, and the pane is given up; the mark is dropped", async () => {

@@ -10,6 +10,8 @@ import type { PickSource, Polled, PromptSource } from "./source.ts";
 
 const POLL_MS = 3000, POST_MS = 15_000, TELL_MS = 2000;
 class Unreachable extends Error {}
+/** There is no server at all (no record, or nothing listens on its socket): the one kind of `Unreachable` that is an absence and not a failure to ask. */
+class Absent extends Unreachable {}
 
 /** Runs `fn` every `ms` until the returned function is called (the here mark's renewal). */
 const every = (fn: () => void, ms: number) => {
@@ -27,11 +29,11 @@ export function serverSource(ctx: Ctx, workspace: string, pid: number = process.
 		} catch (cause) {
 			throw new Unreachable((cause as Error).message);
 		}
-		if (!record?.socket) throw new Unreachable("the sb server is not running");
+		if (!record?.socket) throw new Absent("the sb server is not running");
 		try {
 			return ((await callControl(record.socket, record.secret, request as { cmd: string }, ms)).reply ?? {}) as Record<string, unknown>;
 		} catch (cause) {
-			if (cause instanceof ControlError) throw new Unreachable(cause.message);
+			if (cause instanceof ControlError) throw cause.failure === "no-server" ? new Absent(cause.message) : new Unreachable(cause.message);
 			throw cause;
 		}
 	};
@@ -47,8 +49,9 @@ export function serverSource(ctx: Ctx, workspace: string, pid: number = process.
 		if (reply.ok !== true) throw new Error(String(reply.error ?? "the sb server gave no reason"));
 		return reply;
 	};
-	// The picker's own asks: token-less requests with the state folder's secret, as the posts are. The here mark is asked as a session asks it (the pane's own id); a server that is not there marks nothing, as no page can type then.
-	const here: Here = createHereMark({ ask: (request) => ask(request, TELL_MS).then((reply) => ({ ok: reply.ok === true, ...reply }), () => ({ ok: false, error: "no server" })), pane, every });
+	// The picker's own asks: token-less requests with the state folder's secret, as the posts are. The here mark is asked as a session asks it (the pane's own id). Only a server that is not there marks nothing, as no page can type then; a server that is slow
+	// to answer, refuses, or sits in a folder that is not the boss's refuses the mode (heremark.ts: any other refusal refuses the screen).
+	const here: Here = createHereMark({ ask: (request) => ask(request, TELL_MS).then((reply) => ({ ok: reply.ok === true, ...reply }), (cause: Error) => ({ ok: false, error: cause instanceof Absent ? "no server" : cause.message })), pane, every });
 	const pick: PickSource = {
 		waits: async () => {
 			const reply = await sure({ cmd: "boss-waits", own: workspace });

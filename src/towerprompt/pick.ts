@@ -172,10 +172,15 @@ export function createPick(io: PickIo) {
 			try {
 				await open();
 			} catch (cause) {
-				state = "off";
-				io.mode(false);
+				// A paste or a leave that came meanwhile has ended the mode already (finish).
+				if (state === "starting") {
+					state = "off";
+					io.mode(false);
+				}
 				return out(w.markRefused((cause as Error).message), "bad");
 			}
+			// A paste or a leave ended the mode while the mark was opening: it stays ended, the mark is dropped, and the cards are neither read nor listed.
+			if (state !== "starting") return void release?.();
 			state = "on";
 			await reload();
 		},

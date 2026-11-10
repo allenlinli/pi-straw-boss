@@ -221,18 +221,18 @@ test("the head page's rows are tap targets of 44 px: the log's fold line, each b
 	assert.match(css, /\.head-acts \{[^}]*flex-wrap:\s*wrap/, "the row wraps instead of cutting a button off a 360 px screen");
 });
 
-// A wait card (gui/waitcard.ts; docs/specs/2026-11-07-wait-cards.md, Phone): every button, link, the folded line and the More toggle are 44 px each way with 8 px between targets, the primary and each choice are full-width rows, a URL wraps anywhere, a
-// command wraps whole (it never scrolls sideways: nothing of it may hide). The behavior tests are in wait-card-gui.test.ts; this guards the same block this file reads.
-test("a wait card's controls are 44 px each way on a phone, 8 px apart; the primary and each choice take the width", () => {
-	const set = ".wait-card :is(.pair-btn, .wc-fold, .wc-more)";
+// A wait card (gui/waitcard.ts; docs/specs/2026-11-10-wait-cards-tui.md, section 4, Phone): it is the question panel, so every row, Send, link, the folded line and the More toggle are 44 px each way with 8 px between targets (in Standard, Geek, and Raven by the one block below, in Zen by
+// its own), a URL wraps anywhere, a command wraps whole (it never scrolls sideways: nothing of it may hide). The behavior tests are in wait-card-gui.test.ts; this guards the same block this file reads.
+const zen = readFileSync(new URL("../gui/zen.css", import.meta.url), "utf8");
+test("a wait card's rows, Send and links are 44 px each way on a phone, 8 px apart, in every view", () => {
+	const set = ".wait-card :is(.ask-opt, .ask-send, .cmp-link, .pair-btn, .wc-fold, .wc-more)";
 	assert.equal(size(set, "min-height"), 44);
 	assert.equal(size(set, "min-width"), 44);
-	assert.match(body(".wait-card .wc-acts"), /gap:\s*8px/);
-	assert.match(body(".wait-card .wc-primary"), /flex:\s*1 1 100%/);
-	assert.equal(size(".wait-card .wc-opt", "min-height"), 44);
-	assert.match(body(".wait-card .wc-opt"), /flex:\s*1 1 100%/);
+	assert.match(body(".wait-card :is(.ask-opts, .ask-acts)"), /gap:\s*8px/);
 	assert.match(body(".wait-card .wc-url"), /overflow-wrap:\s*anywhere/);
 	assert.doesNotMatch(css.slice(css.indexOf("/* A phone's tap targets")), /\.wait-card \.wc-cmd \{[^}]*overflow-x/, "a command wraps on a phone too");
-	assert.match(body(".wait-card .wc-skip-acts"), /gap:\s*8px/);
 	assert.match(body(".wait-card :is(.wc-open, .wc-copy)"), /justify-self:\s*stretch/, "Open link and Copy sit below their text at the full width");
+	assert.match(zen, /\[data-view="zen"\] \.wait-card :is\(\.ask-opt, \.ask-send, \.cmp-link, \.pair-btn\) \{[^}]*min-height: 44px; min-width: 44px/, "Zen's skin of the same targets");
+	assert.match(zen, /\[data-view="zen"\] \.wait-card :is\(\.ask-opts, \.ask-acts\) \{ gap: 8px; \}/, "and its rows and Send are 8 px apart");
+	assert.ok(zen.indexOf('[data-view="zen"] .wait-card :is(.ask-opts, .ask-acts)') > zen.indexOf('[data-view="zen"] .zen-card .ask-opts { gap: 2px'), "after the panel's own 2px gap, which it must win by order");
 });

@@ -3,16 +3,17 @@ import type { BossWait, WaitCardView, WaitPressView } from "../src/net.ts";
 import { type Alert, unitOf } from "./alerts.ts";
 import type { SessionPost } from "./answer.ts";
 import { joined, outcome, type WaitActions, waitActions } from "./asks.ts";
+import { actions, choices, LONG_Q, mark, option, say, sendButton, statusLine, wire } from "./askview.ts";
 import { h, nodes } from "./dom.ts";
 import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 import { aim, text, waitTitle } from "./render.ts";
 import { formatRoute, type NetRoute } from "./router.ts";
 import { type ButtonId, type CardModel, cardModel, type Phase, pressedLine } from "./waitcardmodel.ts";
-import { waitPanel } from "./waitpanel.ts";
+import { replyBox } from "./waitpanel.ts";
 import { towerWhy } from "./towerturns.ts";
 
-// The card of a wait for the boss, drawn wherever one is drawn (docs/specs/2026-11-07-wait-cards.md, The card in the GUI): the dock's dialog, the tower card's rows and comms, the head page's rows, and Zen's card. What it shows and says is waitcardmodel.ts's;
+// The card of a wait for the boss, drawn wherever one is drawn (docs/specs/2026-11-07-wait-cards.md, The card in the GUI; docs/specs/2026-11-10-wait-cards-tui.md, section 4: it is the question panel's own parts, askview.ts, so every view wears the confirm card's look): the dock's dialog, the tower card's rows and comms, the head page's rows, and Zen's card. What it shows and says is waitcardmodel.ts's;
 // this file holds the DOM and the calls: a press goes to the memory route (asks.ts `waitActions`), a URL is text that a click opens, a command is text that a click copies, and nothing here runs, fetches, or opens anything by itself.
 
 /** A text part longer than this is clamped to three lines with a More toggle (outside the dock's dialog, which shows every part whole). A card's fields are at most 160 characters; three lines of a phone's width hold about 90. */
@@ -39,8 +40,8 @@ export interface WaitCardOptions {
 	send?(reply: Promise<Answer>): Promise<Answer>;
 	/** A press or an answer the server took, in words, for the host that shows it beside the card or closes its dialog. */
 	done?(said: string): void;
-	/** The dock's dialog puts Skip in its footer row: the card keeps the button and leaves placing it to the host. */
-	skipOutside?: boolean;
+	/** The wait is the head tower's: its words name the head tower (docs/specs/2026-11-10-wait-cards-tui.md, Q3). */
+	head?: boolean;
 	now?(): number;
 }
 
@@ -63,21 +64,26 @@ const selectText = (el: HTMLElement) => {
 	sel.addRange(range);
 };
 
+type Pick = { id: ButtonId; option?: number };
+/** The press a row sends, by the row's id: the memory route's act (asks.ts `waitActions`). */
+const ACT = { done: "done", entered: "done", choose: "choose", secret: "secret", restate: "restate", skip: "decline" } as const;
+
 export function waitCard(o: WaitCardOptions) {
 	const wrap = o.send ?? ((reply: Promise<Answer>) => reply);
-	const panel = waitPanel({ actions: o.actions, ...(o.send ? { send: o.send } : {}), done: (said) => o.done?.(said) });
-	let cur = o.wait, live = true, blocked: string | undefined, over = false, inflight: { id: ButtonId; option?: number } | undefined, refusal = "", confirming = false, folded = o.host === "row", local: WaitPressView | undefined, full: { card?: WaitCardView; press?: WaitPressView } | undefined, read = false, last = "";
+	const reply = replyBox({ actions: o.actions, ...(o.send ? { send: o.send } : {}), ...(o.head ? { head: true } : {}) });
+	let cur = o.wait, live = true, blocked: string | undefined, over = false, inflight: Pick | undefined, refusal = "", folded = o.host === "row", local: WaitPressView | undefined, full: { card?: WaitCardView; press?: WaitPressView } | undefined, read = false, last = "", rowsSig = "", linkSig = "", pick: Pick | undefined;
 	const expanded = new Set<string>();
 	const remote = () => o.remote ?? isRemote();
-	// The persistent parts: the root, the reply fold's button (waitpanel.ts), Skip and its confirm, which keep their state across a redraw of the rest.
-	const skip = h("button", { type: "button", class: "pair-btn wc-skip" }, m.wc_b_skip());
-	const tells = h("p", { class: "wc-skip-tells" }), reason = h("textarea", { class: "wc-skip-reason", rows: "1", maxlength: String(REASON_MAX), "aria-label": m.wc_skip_reason(), placeholder: m.wc_skip_reason() }) as HTMLTextAreaElement;
-	const yes = h("button", { type: "button", class: "pair-btn wc-skip-yes" }, m.wc_skip_yes()), no = h("button", { type: "button", class: "pair-btn wc-skip-no" }, m.cancel());
-	const sure = h("div", { class: "wc-skip-box", role: "group" }, tells, reason, h("div", { class: "wc-skip-acts" }, yes, no));
-	const head = h("div", { class: "wc-head" }), parts = h("div", { class: "wc-parts" }), state = h("p", { class: "wc-state", role: "status" }), hint = h("p", { class: "wc-remote" }), acts = h("div", { class: "wc-acts" });
-	const note = h("small", { class: "tnote-fail wc-fail", role: "alert" });
-	const root = h("div", { class: "wait-card", "data-host": o.host }, head, parts, state, hint, acts, panel.el, sure, note);
-	sure.hidden = true;
+	// The persistent parts: the question panel's own (askview.ts) — Send, the status line, the radiogroup, and the boxes a picked row reveals, which keep their state across a redraw of the rest.
+	const send = sendButton(m.send()), note = statusLine();
+	const tells = h("p", { class: "ask-why wc-skip-tells" }), reason = h("textarea", { class: "ask-own wc-skip-reason", rows: "1", maxlength: String(REASON_MAX), "aria-label": m.wc_skip_reason(), placeholder: m.wc_skip_reason() }) as HTMLTextAreaElement;
+	const skipBox = h("div", { class: "wc-skip-box" }, tells, reason), reveal = h("div", { class: "wc-reveal" }, skipBox, reply.box);
+	const head = h("div", { class: "ask-head wc-head" }), parts = h("div", { class: "ask-ctx wc-parts" }), hint = h("p", { class: "ask-why wc-remote" });
+	const rows: HTMLButtonElement[] = [], opts = choices("radiogroup", m.options());
+	const acts = actions(send);
+	const root = h("section", { class: "ask wait-card", "data-host": o.host }, head, parts, hint, opts, reveal, acts, note);
+	let link: HTMLElement | undefined;
+	reveal.hidden = true;
 
 	/** The wait with what the page learned beyond the snapshot: the whole card of a cut one, and the press a reply carried before the snapshot brings it. */
 	const effective = (): BossWait => {
@@ -85,34 +91,62 @@ export function waitCard(o: WaitCardOptions) {
 		return { ...cur, ...(full?.card ? { card: full.card } : {}), ...(press ? { press } : {}), ...(full?.card ? { cut: undefined } : {}) } as BossWait;
 	};
 	const phase = (): Phase => (over || cur.state === "resolved" ? "ended" : inflight ? "sending" : !live ? "stale" : refusal ? "refused" : "open");
-	const model = (): CardModel => cardModel({ wait: effective(), phase: phase(), remote: remote(), ...(inflight ? { sending: inflight } : {}), open: Boolean(o.main?.(effective().card?.from?.key ?? "")), ...(blocked ? { blocked } : {}), ...(o.secretOpen ? { secretOpen: o.secretOpen() } : {}), now: (o.now ?? Date.now)() });
+	const model = (): CardModel => cardModel({ wait: effective(), phase: phase(), remote: remote(), ...(inflight ? { sending: inflight } : {}), open: Boolean(o.main?.(effective().card?.from?.key ?? "")), ...(blocked ? { blocked } : {}), ...(o.secretOpen ? { secretOpen: o.secretOpen() } : {}), ...(o.head ? { head: true } : {}), now: (o.now ?? Date.now)() });
+	const same = (a: Pick | undefined, b: Pick) => a?.id === b.id && a.option === b.option;
 
-	async function press(id: ButtonId, act: Parameters<WaitActions["press"]>[0], extra?: { option?: number; reason?: string }) {
+	/** The press of the picked row: Send's act. The first step of a secret card ends nothing, so the card stays for the second. */
+	async function press(p: Pick) {
 		if (inflight) return;
-		[inflight, refusal] = [{ id, ...(extra?.option !== undefined ? { option: extra.option } : {}) }, ""];
+		const act = ACT[p.id as keyof typeof ACT];
+		const extra = p.id === "choose" ? { option: p.option } : p.id === "skip" && reason.value.trim() ? { reason: reason.value.trim() } : undefined;
+		[inflight, refusal] = [p, ""];
 		render();
 		try {
-			const r = await (act === "secret" ? o.actions.press(act, extra) : wrap(o.actions.press(act, extra))); // the first step of a secret card ends nothing: the card stays for the second
+			const r = await (act === "secret" ? o.actions.press(act, extra) : wrap(o.actions.press(act, extra)));
 			inflight = undefined;
 			if (outcome(r) === "accepted") {
 				local = (r.body.press as WaitPressView | undefined) ?? { act, at: new Date().toISOString(), ...(extra?.option !== undefined ? { option: extra.option } : {}) };
-				confirming = false;
+				[pick, reason.value] = [undefined, ""];
 				render();
-				if (act !== "secret") o.done?.(pressedLine(effective()));
-			} else (refusal = joined(towerWhy(r) ?? r.body.reason ?? r.body.error ?? String(r.status)), render());
+				if (act !== "secret") o.done?.(pressedLine(effective(), o.head ? { head: true } : undefined));
+			} else (refusal = m.wc_refused({ reason: joined(towerWhy(r) ?? r.body.reason ?? r.body.error ?? String(r.status)) }), render());
 		} catch {
 			inflight = undefined;
 			refusal = m.unreachable();
 			render();
 		}
 	}
-	const target = (id: ButtonId, option?: number): (() => void) => {
-		if (id === "done" || id === "entered") return () => void press(id, "done");
-		if (id === "choose") return () => void press(id, "choose", { option });
-		if (id === "secret") return () => void press(id, "secret");
-		if (id === "restate") return () => void press(id, "restate");
-		return () => {};
+	/** The words of the reply row go to the tower's session input; no press. */
+	async function tell() {
+		if (inflight || !reply.ready()) return;
+		[inflight, refusal] = [{ id: "reply" }, ""];
+		render();
+		const r = await reply.send();
+		inflight = undefined;
+		if (r.taken) {
+			pick = undefined;
+			render();
+			o.done?.(m.wait_sent());
+		} else (refusal = r.why ?? "", render(), reply.box.focus());
+	}
+	const choose = (b: CardModel["buttons"][number]) => {
+		pick = { id: b.id, ...(b.option !== undefined ? { option: b.option } : {}) };
+		refusal = "";
+		render();
+		// The reply's box takes the focus (the words are what comes next). Skip's reason is optional, so the focus stays on the row: a phone's keyboard would open over the confirm, and Enter goes on to Send (askkeys.ts).
+		if (b.id === "reply") reply.box.focus();
+		else if (b.id === "skip") reveal.scrollIntoView?.({ block: "nearest" });
 	};
+	send.onclick = () => void (pick && (pick.id === "reply" ? tell() : press(pick)));
+	const sendOnEnter = (e: KeyboardEvent) => {
+		if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+		e.preventDefault();
+		render(); // words set without an input event (autofill, an IME) are read as they stand
+		if (!send.disabled) send.click();
+	};
+	for (const box of [reason, reply.box]) box.addEventListener("keydown", sendOnEnter as EventListener);
+	reply.box.addEventListener("input", () => ((refusal = ""), render()));
+	const keys = wire(opts, [{ opts: rows, multiple: false, answered: () => pick !== undefined }], () => send);
 
 	function partEl(p: CardModel["parts"][number], lang: string): HTMLElement {
 		const body: (HTMLElement | string)[] = [];
@@ -135,7 +169,8 @@ export function waitCard(o: WaitCardOptions) {
 			};
 			body.push(pre, copy, h("small", { class: "wc-norun" }, m.wc_not_run()), said);
 		}
-		const words = !p.url && p.command === undefined ? h("span", { class: `wc-text${clamped ? " wc-clamp" : ""}`, lang }, p.text) : undefined;
+		const asked = p.id === "do" || p.id === "words"; // what you do (a choice: what you decide) is the panel's question
+		const words = !p.url && p.command === undefined ? h(asked ? "p" : "span", { class: `wc-text${asked ? " ask-q" : ""}${clamped ? " wc-clamp" : ""}`, lang, ...(asked && p.text.length > LONG_Q ? { "data-long": "" } : {}) }, p.text) : undefined;
 		if (words) body.push(words);
 		if (clampable && words) {
 			const more = h("button", { type: "button", class: "wc-more", "aria-expanded": String(!clamped) }, clamped ? m.wc_more() : m.wc_less());
@@ -146,68 +181,78 @@ export function waitCard(o: WaitCardOptions) {
 		}
 		return h("div", { class: "wc-part", "data-part": p.id }, h("b", { class: "wc-label" }, p.label), ...body);
 	}
-	function buttonEl(b: CardModel["buttons"][number]): HTMLElement {
-		if (b.id === "reply") return panel.go;
-		if (b.id === "skip") return skip;
-		if (b.id === "main") {
-			const route = o.main?.(effective().card?.from?.key ?? "");
-			const link = h("a", { class: "pair-btn wc-main", href: route ? formatRoute(route) || "./" : "./", ...(route ? { "data-route": formatRoute(route) } : {}) }, b.label);
-			if (route && o.go) link.onclick = (e: Event) => (e.preventDefault(), e.stopPropagation(), o.go!(route));
-			return link;
-		}
-		const el = h("button", { type: "button", class: `pair-btn wc-btn${b.primary ? " wc-primary" : ""}${b.id === "choose" ? " wc-opt" : ""}${b.picked ? " wc-picked" : ""}`, "data-act": b.id, ...(b.option !== undefined ? { "data-option": String(b.option) } : {}) }, b.then ? h("b", null, b.label) : b.label, b.then ? h("small", null, b.then) : null) as HTMLButtonElement;
-		el.disabled = Boolean(b.disabled);
-		if (b.picked) el.setAttribute("aria-pressed", "true");
-		el.onclick = target(b.id, b.option);
+	/** The raiser's link: Open <name>, quiet beside Send. */
+	function linkEl(b: CardModel["buttons"][number]): HTMLElement {
+		const route = o.main?.(effective().card?.from?.key ?? "");
+		const el = h("a", { class: "cmp-link wc-main", href: route ? formatRoute(route) || "./" : "./", ...(route ? { "data-route": formatRoute(route) } : {}) }, b.label);
+		if (route && o.go) el.onclick = (e: Event) => (e.preventDefault(), e.stopPropagation(), o.go!(route));
 		return el;
 	}
 
 	function render() {
-		const w = effective(), md = model(), lang = w.card?.lang ?? "";
+		const w = effective(), md = model(), lang = w.card?.lang ?? "", ph = phase();
 		const doText = md.parts.find((p) => p.id === "do" || p.id === "words")?.text ?? "";
-		const sig = JSON.stringify([md, folded, [...expanded], confirming, refusal, inflight, o.host]);
+		const rowOf = md.buttons.filter((b) => b.id !== "main");
+		if (pick && !rowOf.some((b) => same(pick, b))) pick = undefined; // the row is gone (the wait was pressed or ended)
 		root.dataset.kind = md.kind;
-		root.dataset.phase = phase();
+		root.dataset.phase = ph;
 		root.dataset.folded = String(folded);
 		root.dataset.pressed = String(Boolean(w.press && w.press.act !== "secret"));
 		root.dataset.parked = String(Boolean(md.parked));
 		root.dataset.step = String(md.step ?? "");
-		skip.hidden = md.buttons.every((b) => b.id !== "skip");
-		skip.disabled = Boolean(md.buttons.find((b) => b.id === "skip")?.disabled); // the dock puts Skip in its footer, outside the buttons drawn here: it goes off with them
-		if (sig === last) return;
-		last = sig;
-		const held = globalThis.document.activeElement as HTMLElement | null, keep = held && acts.contains(held) ? (held.dataset.act ? `${held.dataset.act}:${held.dataset.option ?? ""}` : undefined) : undefined;
-		// The head: a row's folded line (tag, what to do, who raised it; a tap unfolds the rest), else the tag and the raiser above the parts.
-		if (o.host === "row") {
-			const fold = h("button", { type: "button", class: "wc-fold", "aria-expanded": String(!folded) }, h("b", { class: "wc-tag" }, md.tag), md.parked ? h("small", { class: "wc-parked" }, md.parked) : null, h("span", { class: "wc-do", lang }, doText), h("small", { class: "wc-raised" }, md.raised));
-			fold.onclick = () => ((folded = !folded), render());
-			head.replaceChildren(fold);
-		} else head.replaceChildren(...nodes(h("b", { class: "wc-tag" }, md.tag), md.parked ? h("small", { class: "wc-parked" }, md.parked) : null, h("small", { class: "wc-raised" }, md.raised)));
-		parts.hidden = folded;
-		parts.replaceChildren(...md.parts.map((p) => partEl(p, lang)));
-		state.textContent = md.line;
-		state.hidden = !md.line;
-		hint.textContent = md.remote ?? "";
+		// The head: a row's folded line (tag, what to do, who raised it; a tap unfolds the rest), else the tag, the parked mark, and the raiser.
+		const sig = JSON.stringify([md.tag, md.parked, md.raised, md.parts, md.remote, folded, [...expanded], o.host, doText]);
+		if (sig !== last) {
+			last = sig;
+			if (o.host === "row") {
+				const fold = h("button", { type: "button", class: "wc-fold", "aria-expanded": String(!folded) }, h("b", { class: "wc-tag" }, md.tag), md.parked ? h("small", { class: "wc-parked" }, md.parked) : null, h("span", { class: "wc-do", lang }, doText), h("small", { class: "wc-raised" }, md.raised));
+				fold.onclick = () => ((folded = !folded), render());
+				head.replaceChildren(fold);
+			} else head.replaceChildren(...nodes(h("b", { class: "wc-tag" }, md.tag), md.parked ? h("small", { class: "wc-parked" }, md.parked) : null, h("small", { class: "wc-raised" }, md.raised)));
+			parts.replaceChildren(...md.parts.map((p) => partEl(p, lang)));
+			hint.textContent = md.remote ?? "";
+		}
+		for (const el of [parts, hint, opts, reveal, acts]) el.hidden = folded;
 		hint.hidden = !md.remote || folded;
-		const buttons = md.buttons.filter((b) => !(b.id === "skip" && o.skipOutside)).filter((b) => !folded || b.primary);
-		acts.replaceChildren(...buttons.map(buttonEl));
-		acts.hidden = !buttons.length;
-		sure.hidden = !confirming || folded;
-		tells.textContent = (w.card?.from && !w.card.from.gone ? m.wc_skip_tells({ name: w.card.from.name }) : m.wc_skip_tells_tower());
-		note.textContent = refusal ? m.wc_refused({ reason: refusal }) : "";
-		if (keep) (Array.from(acts.querySelectorAll<HTMLElement>("[data-act]")).find((el) => `${el.dataset.act}:${el.dataset.option ?? ""}` === keep) as HTMLElement | undefined)?.focus();
-		if (o.skipOutside) skip.dataset.confirming = String(confirming);
+		// The rows: rebuilt only when the acts change, so the key presses that move and pick (askkeys.ts) keep the element they are on.
+		const held = globalThis.document.activeElement as HTMLElement | null, keep = held && opts.contains(held) ? `${held.dataset.act}:${held.dataset.option ?? ""}` : undefined;
+		const nextRows = JSON.stringify(rowOf.map((b) => [b.id, b.option, b.label, b.then]));
+		if (nextRows !== rowsSig) {
+			rowsSig = nextRows;
+			const made = rowOf.map((b) => {
+				const el = option("radio", b.label, [b.then], () => choose(b));
+				el.dataset.act = b.id;
+				if (b.option !== undefined) el.dataset.option = String(b.option);
+				return el;
+			});
+			rows.splice(0, rows.length, ...made);
+			opts.replaceChildren(...made);
+			if (keep) rows.find((el) => `${el.dataset.act}:${el.dataset.option ?? ""}` === keep)?.focus();
+		}
+		rowOf.forEach((b, i) => {
+			const el = rows[i]!;
+			mark(el, same(pick, b) || Boolean(b.picked)); // a pressed choice stays marked
+			el.disabled = Boolean(b.disabled);
+			el.setAttribute("tabindex", String(pick ? (same(pick, b) ? 0 : -1) : i === 0 ? 0 : -1));
+		});
+		// What the picked row reveals: Skip says who is told and takes a reason, Reply takes the words.
+		const skipping = pick?.id === "skip", replying = pick?.id === "reply";
+		reveal.hidden = folded || !(skipping || replying);
+		skipBox.hidden = !skipping;
+		reply.box.hidden = !replying;
+		tells.textContent = w.card?.from && !w.card.from.gone ? (o.head ? m.wc_skip_tells_head : m.wc_skip_tells)({ name: w.card.from.name }) : (o.head ? m.wc_skip_tells_tower_head : m.wc_skip_tells_tower)();
+		send.disabled = !pick || !live || Boolean(inflight) || (ph !== "open" && ph !== "refused") || (replying && !reply.ready());
+		// The raiser's link beside Send, rebuilt only when it changes.
+		const main = md.buttons.find((b) => b.id === "main"), nextLink = main ? `${main.label}\n${main.disabled}\n${formatRoute(o.main?.(w.card?.from?.key ?? "") ?? { view: "session", ws: "", key: "" })}` : "";
+		if (nextLink !== linkSig) {
+			linkSig = nextLink;
+			link?.remove();
+			link = main ? linkEl(main) : undefined;
+			if (link) acts.append(link);
+		}
+		// The status line: sending, a refusal, or what the wait says of itself (what was pressed and who was told, the secret's second step, a stream that is down or a tower that closed it).
+		say(note, inflight ? "" : refusal ? "error" : root.dataset.pressed === "true" ? "ok" : "", inflight ? m.wc_sending() : refusal || md.line);
 	}
-
-	skip.onclick = () => {
-		if (phase() === "ended" || inflight) return;
-		confirming = true;
-		render();
-		yes.focus(); // the confirm is the act: the optional reason box would open a phone's keyboard over it
-		sure.scrollIntoView?.({ block: "nearest" });
-	};
-	no.onclick = () => ((confirming = false), (reason.value = ""), render(), skip.focus());
-	yes.onclick = () => void press("skip", "decline", reason.value.trim() ? { reason: reason.value.trim() } : undefined);
 
 	/** A card the snapshot cut is read whole from the memory route, once. */
 	function fetchWhole() {
@@ -223,7 +268,6 @@ export function waitCard(o: WaitCardOptions) {
 		cur = next;
 		[live, over, blocked] = [on, ended, on ? undefined : why];
 		if (cur.press && local && cur.press.at >= local.at) local = undefined; // the snapshot caught up
-		panel.update(on, ended, blocked);
 		fetchWhole();
 		render();
 	}
@@ -233,23 +277,28 @@ export function waitCard(o: WaitCardOptions) {
 		el: root,
 		/** The tag of the card's kind (Needs you / Your choice / Needs a secret), which the dock's badge repeats. */
 		tag: () => model().tag,
-		/** The Skip button, for a host that places it itself (`skipOutside`). */
-		skip,
 		update,
-		sending: () => Boolean(inflight) || panel.sending(),
-		/** The answer box is unfolded. */
-		isOpen: panel.isOpen,
-		confirming: () => confirming,
+		sending: () => Boolean(inflight) || reply.sending(),
+		/** The reply row is picked: its box is open. */
+		isOpen: () => pick?.id === "reply",
+		/** The Skip row is picked: its reason box and its tells line are open, and Send confirms. */
+		confirming: () => pick?.id === "skip",
 		/** The host's reading of whether the raiser's `secret_drop` dialog is pending; it changes with each snapshot, so the host sets it again. */
 		secretWhen(fn: (() => boolean) | undefined) {
 			o.secretOpen = fn;
 		},
-		/** Folds the answer box, the draft kept (Esc); false when it was not open. */
-		foldReply: () => panel.fold(true),
-		/** The primary control takes the focus when the card is taken (Z-D20): the primary button, else the first choice, else the reply fold. */
+		/** Puts the reply row back unpicked, the draft kept (Esc); false when it was not picked. */
+		foldReply(): boolean {
+			if (pick?.id !== "reply") return false;
+			pick = undefined;
+			render();
+			rows.find((el) => el.dataset.act === "reply")?.focus();
+			return true;
+		},
+		/** The chosen row takes the focus when the card is taken (Z-D20), else the first; false when there is none to take. */
 		enter(): boolean {
-			const first = Array.from(acts.querySelectorAll<HTMLButtonElement>(".wc-primary, .wc-opt")).find((b) => !b.disabled);
-			return first ? (first.focus(), true) : panel.enter();
+			const to = keys();
+			return Boolean(to && !to.disabled && (to.focus(), true));
 		},
 	};
 }
@@ -260,7 +309,7 @@ const entryOf = (a: Alert): BossWait => a.wait!.entry ?? { id: a.wait!.id, text:
 const cards = new WeakMap<HTMLElement, ReturnType<typeof waitCard>>();
 /** The dock's dialog of a wait takes the focus on its card's primary button (else its first option); false when it has none. */
 export const enterWait = (el: HTMLElement) => cards.get(el)?.enter() ?? false;
-/** A wait's dialog in the dock: the card in the answer slot, the link to the comms, Later and Skip in the footer's row, and none of the tower's old transmission; a wait that is over says so. */
+/** A wait's dialog in the dock: the card in the answer slot (Skip is one of its rows), the link to the comms and Later in the footer's row, and none of the tower's old transmission; a wait that is over says so. */
 export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () => void, send: SessionPost, more: { remote?: boolean; box?: boolean; /** The tower is a remote base's and its box takes no input now: the card answers nothing. */ away?: boolean; secretOpen?(): boolean; /** The workspace of the raiser's unit, found by its key (a head wait's alert is on the head's base, not the raiser's). */ where?(key: string): string | undefined } = {}) {
 	const over = Boolean(a.gone), go = el.querySelector<HTMLElement>(".go")!;
 	el.dataset.wait = ""; // the footer's link is the secondary act here (style.css): the card's buttons answer
@@ -272,11 +321,9 @@ export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () =
 	text(el, ".state", over ? m.tower_wait_over() : m.memory_wait_boss());
 	let card = cards.get(el);
 	const entry = entryOf(a);
-	if (!card) cards.set(el, (card = waitCard({ host: "dialog", wait: entry, actions: waitActions({ ws: a.ws, id: entry.id, tower: unitOf(a) }, send), main: (key) => ((ws) => (key && ws ? { view: "session", ws, key } : undefined))(more.where?.(key) ?? (a.ws === HEAD_KEY ? undefined : a.ws)), skipOutside: true, done: close, ...(more.remote !== undefined ? { remote: more.remote } : {}), ...(more.box ? { box: true } : {}) })));
+	if (!card) cards.set(el, (card = waitCard({ host: "dialog", wait: entry, actions: waitActions({ ws: a.ws, id: entry.id, tower: unitOf(a) }, send), ...(a.ws === HEAD_KEY ? { head: true } : {}), main: (key) => ((ws) => (key && ws ? { view: "session", ws, key } : undefined))(more.where?.(key) ?? (a.ws === HEAD_KEY ? undefined : a.ws)), done: close, ...(more.remote !== undefined ? { remote: more.remote } : {}), ...(more.box ? { box: true } : {}) })));
 	card.secretWhen(more.secretOpen);
 	if (!el.querySelector(".wait-card")) el.querySelector(".ask-root")!.replaceChildren(card.el);
-	// The comms link, Later and Skip in one row of the dialog's footer, the quiet one last.
-	el.querySelector("footer")!.insertBefore(card.skip, el.querySelector(".queued"));
 	card.update(entry, !over && !more.away && document.body.dataset.stale !== "true", over, more.away && document.body.dataset.stale !== "true" ? m.box_answer_blocked() : undefined);
 	text(el, ".tag", card.tag()); // the card's own word, not QUESTION (and not the stack's GONE: the tower did not leave, the wait ended)
 }

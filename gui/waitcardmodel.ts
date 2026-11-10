@@ -4,7 +4,10 @@ import { m } from "./sentences.ts";
 // What a wait card shows (docs/specs/2026-11-07-wait-cards.md, The card in the GUI): which parts, which buttons, which words, decided from the wait as the snapshot carries it and the few facts of the page (a paired device, what the stream is doing, what
 // the boss just pressed). Pure: waitcard.ts draws it and holds the DOM, and every host (the dock's dialog, the tower's rows, Zen) draws the same model.
 
-type Opts = { locale?: "en" | "zh-TW" };
+type Opts = { locale?: "en" | "zh-TW"; /** The wait is the head tower's: its words name the head tower (`_head` twins, Q3 of docs/specs/2026-11-10-wait-cards-tui.md). */ head?: boolean };
+type Msg = (inputs: never, options?: { locale?: "en" | "zh-TW" }) => string; // a message takes its own inputs, which the card passes by name
+/** A message of the card that names the tower, or its twin that names the head tower. */
+const word = (base: Msg, twin: Msg, o?: Opts) => (o?.head ? twin : base) as (inputs: object, options?: Opts) => string;
 export type Kind = "action" | "choice" | "secret" | "legacy";
 /** `open`; `sending` (a press is on its way); `pressed` (the wait carries the press); `refused` (the server said no: the buttons are on again); `stale` (the stream is down); `ended` (the tower resolved it, or the boss declined it). */
 export type Phase = "open" | "sending" | "pressed" | "refused" | "stale" | "ended";
@@ -42,6 +45,8 @@ export interface CardInput {
 	secretOpen?: boolean;
 	/** The card is off because its unit's box is away, not because the stream is down: the reason, which the status line says in place of the connection words. */
 	blocked?: string;
+	/** The wait is the head tower's. */
+	head?: boolean;
 	now: number;
 }
 
@@ -54,25 +59,25 @@ export function ago(at: string, now: number, o?: Opts): string {
 	for (const [size, say] of AGE) if (s >= size) return m.wc_ago({ age: say({ n: String(Math.floor(s / size)) }, o) }, o);
 	return m.wc_ago({ age: m.age_s({ n: String(Math.floor(s)) }, o) }, o);
 }
-const tagOf = (k: Kind, o?: Opts) => ({ action: m.wc_tag_action, choice: m.wc_tag_choice, secret: m.wc_tag_secret, legacy: m.wc_tag_legacy })[k]({}, o);
+const tagOf = (k: Kind, o?: Opts) => ({ action: m.wc_tag_action, choice: m.wc_tag_choice, secret: m.wc_tag_secret, legacy: word(m.wc_tag_legacy, m.wc_tag_legacy_head, o) })[k]({}, o);
 /** The raiser's line: who, where (the workspace and tab the net gave), and how long ago. A tower's own wait says so; a raiser that left says so. */
 export function raisedLine(w: BossWait, now: number, o?: Opts): string {
 	const f = w.card?.from, since = ago(w.at, now, o);
 	if (!w.card) return since;
-	if (!f) return [m.wc_raised_self({}, o), since].filter(Boolean).join(" · ");
+	if (!f) return [word(m.wc_raised_self, m.wc_raised_self_head, o)({}, o), since].filter(Boolean).join(" · ");
 	const where = [f.workspace, f.tab].filter(Boolean).join(" › ");
 	return [m.wc_raised({ name: f.gone ? `${f.name} ${m.wc_raised_gone({}, o)}` : f.name }, o), where, since].filter(Boolean).join(" · ");
 }
 const told = (card: WaitCardView | undefined, press: WaitPressView, o?: Opts): string => {
 	const f = card?.from;
-	if (!f || !press.main) return m.wc_told_tower({}, o);
-	return (press.main.status === "gone" ? m.wc_told_gone : press.main.status === "failed" ? m.wc_told_failed : m.wc_told_both)({ name: f.name }, o);
+	if (!f || !press.main) return word(m.wc_told_tower, m.wc_told_tower_head, o)({}, o);
+	return (press.main.status === "gone" ? word(m.wc_told_gone, m.wc_told_gone_head, o) : press.main.status === "failed" ? word(m.wc_told_failed, m.wc_told_failed_head, o) : word(m.wc_told_both, m.wc_told_both_head, o))({ name: f.name }, o);
 };
 /** The line a press leaves: what the boss did and who was told. The secret card's first step is not a press line (it has its own words). */
 export function pressedLine(w: BossWait, o?: Opts): string {
 	const p = w.press;
 	if (!p || p.act === "secret") return "";
-	const said = p.act === "done" ? m.wc_pressed_done({}, o) : p.act === "choose" ? m.wc_pressed_choose({ label: w.card?.options?.[p.option ?? -1]?.label ?? "" }, o) : p.act === "decline" ? m.wc_pressed_decline({}, o) : m.wc_pressed_restate({}, o);
+	const said = p.act === "done" ? m.wc_pressed_done({}, o) : p.act === "choose" ? m.wc_pressed_choose({ label: w.card?.options?.[p.option ?? -1]?.label ?? "" }, o) : p.act === "decline" ? m.wc_pressed_decline({}, o) : word(m.wc_pressed_restate, m.wc_pressed_restate_head, o)({}, o);
 	return p.act === "restate" ? said : `${said}${m.wc_sep({}, o)}${told(w.card, p, o)}`;
 }
 const secretLine = (w: BossWait, secretOpen: boolean | undefined, o?: Opts): string => {
@@ -82,10 +87,11 @@ const secretLine = (w: BossWait, secretOpen: boolean | undefined, o?: Opts): str
 	return f?.tab ? m.wc_secret_asked({ name, tab: f.tab }, o) : m.wc_secret_asked_plain({ name }, o);
 };
 
-export function cardModel(i: CardInput, o?: Opts): CardModel {
+export function cardModel(i: CardInput, opts?: Opts): CardModel {
+	const o: Opts | undefined = i.head ? { ...opts, head: true } : opts;
 	const { wait: w, phase } = i, kind = kindOf(w), card = w.card, step = kind === "secret" && w.press?.act === "secret" ? 2 : kind === "secret" ? 1 : undefined;
 	const parts: Part[] = [];
-	if (!card) parts.push({ id: "words", label: m.wc_p_words({}, o), text: w.text });
+	if (!card) parts.push({ id: "words", label: word(m.wc_p_words, m.wc_p_words_head, o)({}, o), text: w.text });
 	else {
 		parts.push({ id: "happened", label: m.wc_p_happened({}, o), text: card.happened }, { id: "do", label: (card.type === "choice" ? m.wc_p_decide : m.wc_p_do)({}, o), text: card.do });
 		if (card.url || card.command) parts.push({ id: "where", label: m.wc_p_where({}, o), text: card.url ?? card.command ?? "", ...(card.url ? { url: card.url } : {}), ...(card.command ? { command: card.command } : {}) });
@@ -105,11 +111,11 @@ export function cardModel(i: CardInput, o?: Opts): CardModel {
 		else if (kind === "secret" && !pressed) {
 			if (step === 1) (w.parked ? (remote = m.wc_secret_parked({}, o)) : i.remote ? (remote = m.wc_at_computer({}, o)) : act({ id: "secret", label: m.wc_b_start({}, o), primary: true }));
 			else act({ id: "entered", label: m.wc_b_entered({}, o), primary: true });
-		} else if (kind === "legacy" && !pressed && !w.cut) act({ id: "restate", label: m.wc_b_restate({}, o), primary: true });
+		} else if (kind === "legacy" && !pressed && !w.cut) act({ id: "restate", label: word(m.wc_b_restate, m.wc_b_restate_head, o)({}, o), primary: true });
 		if (card?.from && !card.from.gone && card.from.key && i.open) buttons.push({ id: "main", label: m.wc_b_main({ name: card.from.name }, o), ...(off ? { disabled: true } : {}) });
-		buttons.push({ id: "reply", label: m.wc_b_reply({}, o) }); // the reply fold keeps its own state (waitpanel.ts): an offline page keeps it and says so in the box
+		buttons.push({ id: "reply", label: word(m.wc_b_reply, m.wc_b_reply_head, o)({}, o) }); // the reply fold keeps its own state (waitpanel.ts): an offline page keeps it and says so in the box
 		if (!(w.press?.act === "decline")) buttons.push({ id: "skip", label: m.wc_b_skip({}, o), ...(phase === "stale" || phase === "sending" ? { disabled: true } : {}) });
 	}
-	const line = phase === "ended" ? (w.outcome ? m.wc_ended({ outcome: w.outcome }, o) : m.wc_ended_plain({}, o)) : phase === "stale" ? (i.blocked ?? m.wc_stale({}, o)) : pressed ? pressedLine(w, o) : step === 2 ? secretLine(w, i.secretOpen, o) : "";
+	const line = phase === "ended" ? (w.outcome ? word(m.wc_ended, m.wc_ended_head, o)({ outcome: w.outcome }, o) : word(m.wc_ended_plain, m.wc_ended_plain_head, o)({}, o)) : phase === "stale" ? (i.blocked ?? m.wc_stale({}, o)) : pressed ? pressedLine(w, o) : step === 2 ? secretLine(w, i.secretOpen, o) : "";
 	return { kind, tag: tagOf(kind, o), raised: raisedLine(w, i.now, o), parts, buttons, line, ...(remote ? { remote } : {}), ...(w.parked && phase !== "ended" ? { parked: m.wait_parked({}, o) } : {}), ...(step ? { step } : {}), whole: !w.cut };
 }

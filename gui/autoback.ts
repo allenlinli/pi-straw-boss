@@ -71,7 +71,7 @@ export function mountBack(host: HTMLElement, d: BackDeps) {
 		const drawn = report.parked.flatMap((row) => {
 			const at = openWait(net, row);
 			if (!at) return (settled++, []);
-			const key = `${at.ws}\u001f${row.id}`, card = kit.waitCard({ host: "row", wait: at.wait, actions: kit.waitActions({ ws: at.ws, id: row.id, tower: at.key }, kit.answerPost(at.key)), done: (line) => (said.textContent = line) });
+			const key = `${at.ws}\u001f${row.id}`, card = kit.waitCard({ host: "row", wait: at.wait, ...(at.ws === HEAD_KEY ? { head: true } : {}), actions: kit.waitActions({ ws: at.ws, id: row.id, tower: at.key }, kit.answerPost(at.key)), done: (line) => (said.textContent = line) });
 			card.update(at.wait, document.body?.dataset?.stale !== "true");
 			cards.set(key, card);
 			find.set(key, row);

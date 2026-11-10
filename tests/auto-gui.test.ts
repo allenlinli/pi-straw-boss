@@ -284,6 +284,10 @@ const panelWith = (netNow: Net, over: Partial<Parameters<typeof mountBack>[1]> =
 	const back = mountBack(host as never, { net: () => netNow, store, now: () => Date.parse("2026-11-10T00:41:00Z"), ...over });
 	return { host, store, back };
 };
+/** A return panel's card is a folded row: a tap unfolds it, the first row (I'm done) is picked, and Send presses (the question panel's way, docs/specs/2026-11-10-wait-cards-tui.md Q1). */
+const pressFirst = (host: El) => {
+	for (const part of [".auto-back-card .wc-fold", ".auto-back-card .ask-opt", ".auto-back-card .ask-send"]) (host.querySelector(part) as El).click();
+};
 const cardOf = (type: string) => ({ type, lang: "en", happened: "h", do: "Re-authorize it", after: "a" });
 
 test("the panel lists the parked cards first as pressable cards; one that was answered meanwhile is counted, not drawn; the rest is folded", async () => {
@@ -307,7 +311,7 @@ test("a card of the panel presses through the tower's memory route, as its row d
 	reply = { ok: true, status: 200, body: { rev: 4, proposals: [], entries: [], press: { act: "done", at: WAIT_AT } } };
 	const { host, back, store } = panelWith(towerNet([w("W1", { card: cardOf("action") })]));
 	await back.open({ ...REPORT, parked: [ROW("W1")] });
-	(host.querySelector(".auto-back-card .wc-btn") as El).click();
+	pressFirst(host);
 	await until(() => sent.length === 1, "the press");
 	assert.deepEqual(sent, [{ path: "api/tower/w1/memory", body: { op: "press", id: "W1", act: "done" } }]);
 	sent.length = 0;
@@ -323,9 +327,10 @@ test("the head's parked card is found in the head's memory and pressed at the he
 	const { host, back } = panelWith(netNow);
 	await back.open({ ...REPORT, parked: [ROW("W5", { workspace: "ws-of-the-head", tower: "head", head: true })] });
 	assert.equal(host.querySelectorAll(".auto-back-card").length, 1);
-	(host.querySelector(".auto-back-card .wc-btn") as El).click();
+	pressFirst(host);
 	await until(() => sent.length === 1, "the press");
 	assert.equal(sent[0]!.path, "api/head/memory");
+	assert.ok((host.querySelector(".auto-back-card .ask-opts") as El).textContent.includes(m.wc_b_reply_head()), "a head row's card says the head tower (Q3)");
 });
 
 test("a head row never finds a tower's wait and a tower row never finds the head's, whatever their ids (AG-F001)", async () => {

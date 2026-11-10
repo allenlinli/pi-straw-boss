@@ -29,8 +29,10 @@ Other dialogs show read-only, and `secret_drop` always takes its secret in the t
 An answer that leaves its next step in a terminal (robot_hand's prompt and pane choices) shows a small card to finish it, with a link to the full terminal for ssh and vim.
 
 **A tower's wait for you** is a card, not a line of text: what happened, what you do, where (a link to open, or a command to copy; sb never runs one), what happens after, and which session raised it.
-It has the buttons that fit (I'm done, a choice's options, or the steps of a secret entered in the terminal), a **Skip** that takes two taps and tells the tower and the session, and a reply box.
-**Handle** unfolds the reply box, and Enter tells the tower.
+It is drawn as the question panel is, in every view: the acts that fit are rows (I'm done, a choice's options, or the steps of a secret entered in the terminal), then **Reply to the tower** and **Skip**.
+Pick a row, then press **Send**: a tap alone presses nothing, and a card folded into a tower's row unfolds when you tap it.
+**Skip** shows who will be told and an optional reason, and Send tells the tower and the session; **Reply to the tower** shows the reply box, and Enter sends it.
+A card from the head tower says so in its own words (主塔台 in Traditional Chinese, 鴉閣 in Raven).
 
 <p align="center"><img src="/pi-straw-boss/docs/img/gui-wait-answer.png" width="49%" alt="The dialog for a tower's wait: the question, the answer box with a reply typed, Send, the link to the tower's comms, Later, and Dismiss"> <img src="/pi-straw-boss/docs/img/gui-settings.png" width="49%" alt="The settings page: this device's view, reminders, sound and volume, and language, with the sections for phones and devices, teams, and the server below"></p>
 

@@ -271,8 +271,8 @@ const waitNet = (r: { now(): number }, text = "Boss token needed to add the ACL"
 	return n;
 };
 /** The wait card's answer box: the textarea inside the card's answer slot, and the note under it. */
-const waitBox = (r: ReturnType<typeof rig>) => r.by((el) => el.tagName === "textarea")[0]!;
-const waitNote = (r: ReturnType<typeof rig>) => r.by((el) => el.classes.has("zen-head-note"))[0]!;
+const waitBox = (r: ReturnType<typeof rig>) => r.by((el) => el.classes.has("wait-box"))[0]!;
+const waitNote = (r: ReturnType<typeof rig>) => r.by((el) => el.classes.has("ask-note"))[0]!;
 const enter = (box: El) => box.bubble("keydown", { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 });
 
 test("a wait the tower recorded on the boss is an item with its words, the reply fold, Skip, and Not now, and no terminal to open; Skip's second tap has the server decline it", async () => {
@@ -289,8 +289,8 @@ test("a wait the tower recorded on the boss is an item with its words, the reply
 	assert.equal(r.button("Open the terminal"), undefined, "a wait is not a pane blocked on a prompt");
 	assert.equal(r.calls.composers.length, 0, "no companion composer on the card: the answer box is the card's own");
 	r.button("Skip")!.click();
-	assert.deepEqual(sent, [], "Skip takes a second tap");
-	r.button("Skip it")!.click();
+	assert.deepEqual(sent, [], "Skip takes a second tap: Send");
+	r.button("Send")!.click();
 	await r.settle();
 	assert.deepEqual(sent, [{ path: "api/tower/w/memory", body: { op: "press", id: "W2", act: "decline" } }]);
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"], "an accepted answer: the knock");
@@ -303,17 +303,17 @@ test("Handle unfolds the answer box right under the question on the same card, f
 	await r.settle();
 	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
-	const box = waitBox(r), form = r.by((el) => el.tagName === "form" || el.classes.has("zen-head-form"))[0]!;
-	assert.equal(form.hidden, true, "folded until Handle");
+	const box = waitBox(r);
+	assert.equal(box.hidden, true, "folded until Reply is picked");
 	r.button("Reply to the tower")!.click();
 	assert.deepEqual(r.calls.leave, [], "the view does not change");
-	assert.equal(form.hidden, false);
+	assert.equal(box.hidden, false);
 	assert.equal(page.focused, box, "the box has the focus");
 	const card = r.by((el) => el.classes.has("zen-card"))[0]!, order = card.all(() => true);
 	assert.ok(order.indexOf(r.by((el) => el.classes.has("zen-said"))[0]!) < order.indexOf(box), "the box sits under the question");
 	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, "the same card");
 	for (const label of ["Skip", "Maybe later", "Send"]) assert.ok(r.button(label), `${label} stays`);
-	assert.equal(r.button("Reply to the tower")!.hidden, true, "Handle is what is open now");
+	assert.equal(r.button("Reply to the tower")!.getAttribute("aria-checked"), "true", "Reply is what is picked now");
 });
 
 test("sending posts the boss's words to the tower exactly as Standard's composer does; the card leaves with the knock and Zen returns to the circle", async () => {
@@ -362,6 +362,9 @@ test("a wait card in Zen is the whole card; a choice's option presses at the mem
 	assert.equal(r.by((el) => el.classes.has("wc-primary")).length, 0, "a choice has no primary");
 	r.by((el) => el.tagName === "button" && el.dataset.option === "1")[0]!.click();
 	await r.settle();
+	assert.deepEqual(sent, [], "a pick alone presses nothing (the confirm card's behaviour)");
+	r.button("Send")!.click();
+	await r.settle();
 	assert.deepEqual(sent, [{ path: "api/tower/w/memory", body: { op: "press", id: "W2", act: "choose", option: 1 } }]);
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"], "an accepted press: the knock");
 });
@@ -393,6 +396,7 @@ test("a secret card in Zen: the first step leaves the card for its second, with 
 	r.z.key("talk");
 	await r.settle();
 	r.button(m.wc_b_start())!.click();
+	r.button("Send")!.click();
 	await r.settle();
 	assert.deepEqual(sent, [{ op: "press", id: "W2", act: "secret" }]);
 	assert.deepEqual(r.calls.sound, ["bowl"], "no knock: nothing ended");
@@ -426,10 +430,9 @@ test("Esc while the answer is on its way does not fold the box, so a refusal lan
 	await r.settle();
 	assert.equal(r.calls.posts.length, 1, "on its way");
 	r.z.escape({ preventDefault: () => {} });
-	const form = r.by((el) => el.classes.has("zen-head-form"))[0]!;
-	assert.equal(form.hidden, false, "Esc leaves the box as it is while the answer is on its way");
+	assert.equal(box.hidden, false, "Esc leaves the box as it is while the answer is on its way");
 	await r.reply({ error: "refused", reason: "The tower did not take it." }, 409);
-	assert.equal(form.hidden, false, "the box is open for the refusal");
+	assert.equal(box.hidden, false, "the box is open for the refusal");
 	assert.match(waitNote(r).textContent, /^Not sent/);
 	assert.equal(page.focused, box, "and has the focus again");
 });
@@ -498,13 +501,12 @@ test("Esc on the open box folds it with the draft kept and does nothing else; Sh
 	let prevented = 0;
 	const took = r.z.escape({ preventDefault: () => void prevented++ });
 	assert.deepEqual([took, prevented], [true, 1]);
-	const form = r.by((el) => el.classes.has("zen-head-form"))[0]!;
-	assert.equal(form.hidden, true, "folded");
+	assert.equal(box.hidden, true, "folded");
 	assert.equal(box.value, "half a thought", "the draft stays");
 	assert.ok(r.by((el) => el.classes.has("zen-card")).length === 1 && r.calls.sound.join() === "bowl", "the card stays; Esc did not skip it");
-	assert.equal(page.focused, r.button("Reply to the tower"), "the focus returns to Handle");
+	assert.equal(page.focused, r.button("Reply to the tower"), "the focus returns to the Reply row");
 	r.button("Reply to the tower")!.click();
-	assert.equal(box.value, "half a thought", "Handle brings the draft back");
+	assert.equal(box.value, "half a thought", "picking Reply again brings the draft back");
 });
 
 test("a refusal shows under the kept draft in Zen's refusal style, plays the low bowl, and the box stays open for another try", async () => {

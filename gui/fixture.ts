@@ -12,7 +12,7 @@ import { DEMO_DOC, DEMO_PAGE, demoHistory, demoScreen, WHOLE } from "./demo-chat
 import { boardFromUrl } from "./demo-board.ts";
 import { headDemo, headDraft, headHistory, headInput, headReport, type HeadState, isHeadState } from "./demo-head.ts";
 import { answeredHooks } from "./answered.ts";
-import { cardsReply, cardWaits } from "./demo-waits.ts";
+import { cardsReply, cardWaits, headCardWait } from "./demo-waits.ts";
 import { docHooks } from "./doc.ts";
 import type { Answer } from "./post.ts";
 import { type Source, WATCHDOG_MS } from "./stream.ts";
@@ -137,8 +137,8 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 			const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 			// The map card's wait row sends the boss's words through the page's own route (no fixture seam there): the tower's session input.
 			if (/api\/sessions\/[^/]+\/input$/.test(url) && decodeURIComponent(url.split("/").at(-2)!) === net.bases[0]!.tower!.key) return new Response(JSON.stringify(waitRefuse ? { error: "refused", reason: "The sb server stands in for no tower of workspace w1" } : { accepted: true, woke: true, answered: answerWait((JSON.parse(String(init?.body)) as { answers?: string }).answers) }), { status: waitRefuse ? 409 : 200, headers: { "content-type": "application/json" } });
-			if (!/api\/tower\/\w+\/memory$/.test(url)) return real(input, init);
-			const memory = net.bases[0]!.tower!.service!.memory!, id = (JSON.parse(String(init?.body)) as { id: string }).id;
+			if (!/api\/(tower\/\w+|head)\/memory$/.test(url)) return real(input, init);
+			const memory = (/api\/head\/memory$/.test(url) ? net.head?.service?.memory : net.bases[0]!.tower!.service!.memory)!, id = (JSON.parse(String(init?.body)) as { id: string }).id;
 			if (waitDemo === "cards") { const r = cardsReply(memory.bossWaits, init?.body, Date.now()); return ((net = structuredClone(net)), current?.send("message", net), r); }
 			memory.bossWaits = memory.bossWaits.filter((w) => w.id !== id);
 			(net = structuredClone(net)), current?.send("message", net);
@@ -154,6 +154,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	// `?head=<state>`: the head tower on the net (demo-head.ts); without it the demo has none.
 	const headParam = new URLSearchParams(location.search).get("head"), headNow: HeadState | undefined = isHeadState(headParam) ? headParam : zen?.startsWith("head") ? "answers" : new URLSearchParams(location.search).has("board") ? "talk" : undefined;
 	if (headNow) net.head = headDemo(headNow);
+	if (headNow && waitDemo === "cards" && net.head?.service) Object.assign(net.head.service, { memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [headCardWait(Date.now())], proposals: [] } }); // `?waits=cards&head=<state>`: the head tower's own card, in the head's words (Q3)
 	boardFromUrl(net, Date.now(), (change) => ((net = structuredClone(net)), change(net), current?.send("message", net))); // `?board` (demo-board.ts)
 	trainsFromUrl(net, Date.now()); // `?trains=<state>` (demo-trains.ts)
 	const allyParam = new URLSearchParams(location.search).get("ally"), allyScenes = (allyParam ?? "").split(","); allyDemo(net.link!, allyParam, Date.now(), (ms, change) => void setTimeout(() => ((net = structuredClone(net)), change(net.link!), (net.link!.units[0]!.at = Date.now() - 5_000), current?.send("message", net)), ms)); // `?ally=idle|crashed|trust|held|closing|rerun|stale|long|gone|mate|units|teams`, a comma list (`ask,teams`): the states of the ci-box ally base's unit card (demo-ally.ts)

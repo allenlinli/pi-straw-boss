@@ -1446,5 +1446,20 @@
 	"back_kind_reasked": "asked again",
 	"back_kind_backstop": "cancelled by the server",
 	"back_basis": "basis {basis}",
-	"back_close": "Got it"
+	"back_close": "Got it",
+	"wc_tag_legacy_head": "The head tower's older wait",
+	"wc_raised_self_head": "Raised by the head tower",
+	"wc_p_words_head": "The head tower's words",
+	"wc_b_restate_head": "Ask the head tower to rewrite it",
+	"wc_b_reply_head": "Reply to the head tower",
+	"wc_skip_tells_head": "Skipping tells the head tower and {name} that you will not do this.",
+	"wc_skip_tells_tower_head": "Skipping tells the head tower that you will not do this.",
+	"wc_pressed_restate_head": "The head tower was asked to rewrite it",
+	"wc_told_both_head": "the head tower and {name} were told; waiting for the head tower to confirm",
+	"wc_told_tower_head": "the head tower was told; waiting for it to confirm",
+	"wc_told_gone_head": "the head tower was told; {name} has left, so it was not",
+	"wc_told_failed_head": "the head tower was told; {name} was not reached",
+	"wc_ended_head": "The head tower confirmed: {outcome}",
+	"wc_ended_plain_head": "The head tower closed this wait.",
+	"zen_wait_placeholder_head": "Your answer to the head tower"
 }

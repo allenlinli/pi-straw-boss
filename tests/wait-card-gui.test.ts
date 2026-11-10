@@ -150,17 +150,23 @@ test("the model: a card the snapshot cut has only its words and no rewrite butto
 const setNavigator = (value: unknown) => void Object.defineProperty(globalThis, "navigator", { value, configurable: true, writable: true });
 const settle = () => new Promise((done) => setTimeout(done, 5));
 const pressed: string[] = [];
+const told: { action: string; body: Record<string, unknown> }[] = [];
 const rig = (w: BossWait, o: Partial<Parameters<typeof waitCard>[0]> = {}) => {
-	const card = waitCard({ host: "dialog", wait: w, actions: waitActions({ ws: "w", id: w.id, tower: "sb-tower-w" }, async () => ({ ok: true, status: 200, body: { accepted: true } })), remote: false, main: (key) => (key ? { view: "session", ws: "w", key } : undefined), now: () => NOW, done: (said) => void pressed.push(said), ...o });
+	const card = waitCard({ host: "dialog", wait: w, actions: waitActions({ ws: "w", id: w.id, tower: "sb-tower-w" }, async (action, body) => (told.push({ action, body }), { ok: true, status: 200, body: { accepted: true } })), remote: false, main: (key) => (key ? { view: "session", ws: "w", key } : undefined), now: () => NOW, done: (said) => void pressed.push(said), ...o });
 	page.body.append(card.el as never);
 	return card;
 };
 const act = (card: ReturnType<typeof rig>, id: string, option?: number) => (card.el as unknown as El).find((el) => el.tag === "button" && el.dataset.act === id && (option === undefined || el.dataset.option === String(option)))[0];
 const text = (card: ReturnType<typeof rig>) => (card.el as unknown as El).textContent;
 const byClass = (card: ReturnType<typeof rig>, name: string) => (card.el as unknown as El).find((el) => el.classes.has(name));
+/** A tap on an act's row only picks it (the question panel's way); Send is the press. */
+const pick = (card: ReturnType<typeof rig>, id: string, option?: number) => act(card, id, option)!.click();
+const send = (card: ReturnType<typeof rig>) => byClass(card, "ask-send")[0]!;
+const go = (card: ReturnType<typeof rig>, id: string, option?: number) => (pick(card, id, option), send(card).click());
+const note = (card: ReturnType<typeof rig>) => byClass(card, "ask-note")[0]!;
 beforeEach(() => {
 	page.body.replaceChildren();
-	sent.length = pressed.length = opened.length = 0;
+	sent.length = pressed.length = opened.length = told.length = 0;
 	reply = { ok: true, status: 200, body: { rev: 2, proposals: [], entries: [], id: "W9", press: press("done", { main: { status: "delivered", at: AT } }) } };
 	setNavigator(undefined);
 });
@@ -205,9 +211,14 @@ test("the card's fields are text: markup in them stays characters, and a URL tha
 	assert.equal(safeHref("https://bücher.example/a b"), "https://xn--bcher-kva.example/a%20b", "an IDN host shows in punycode");
 });
 
-test("a press posts to the memory route by the wait's id; the first tap of an action's primary sends done and the host is told what happened", async () => {
+test("a press posts to the memory route by the wait's id; picking the act only marks it, Send presses, and the host is told what happened", async () => {
 	const card = rig(wait(fonstar()));
-	act(card, "done")!.click();
+	pick(card, "done");
+	await settle();
+	assert.equal(sent.length, 0, "a tap on the row only picks it (Q1)");
+	assert.equal(act(card, "done")!.getAttribute("aria-checked"), "true");
+	assert.equal(send(card).disabled, false);
+	send(card).click();
 	assert.equal(act(card, "done")?.disabled ?? true, true, "off while it is on its way");
 	await settle();
 	assert.deepEqual(sent, [{ path: "api/tower/w/memory", body: { op: "press", id: "W9", act: "done" } }]);
@@ -221,16 +232,21 @@ test("a press posts to the memory route by the wait's id; the first tap of an ac
 test("a refused press says why under the buttons and turns them on again", async () => {
 	reply = { ok: false, status: 409, body: { error: "refused", reason: "W9 was pressed already: I'm done at 10:58" } };
 	const card = rig(wait(fonstar()));
-	act(card, "done")!.click();
+	go(card, "done");
 	await settle();
 	assert.equal(pressed.length, 0);
-	assert.equal(byClass(card, "wc-fail")[0]!.textContent, m.wc_refused({ reason: "W9 was pressed already: I'm done at 10:58" }));
+	assert.equal(note(card).textContent, m.wc_refused({ reason: "W9 was pressed already: I'm done at 10:58" }));
+	assert.equal(note(card).dataset.tone, "error");
 	assert.equal(act(card, "done")!.disabled, false, "pressable again");
+	assert.equal(act(card, "done")!.getAttribute("aria-checked"), "true", "and still picked, so Send tries again");
 });
 
 test("a choice sends the index of the option pressed", async () => {
 	const card = rig(wait(choice()));
-	act(card, "choose", 1)!.click();
+	pick(card, "choose", 1);
+	assert.equal(sent.length, 0, "a pick alone posts nothing");
+	assert.equal(act(card, "choose", 0)!.getAttribute("aria-checked"), "false");
+	send(card).click();
 	await settle();
 	assert.deepEqual(sent.map((s) => s.body), [{ op: "press", id: "W9", act: "choose", option: 1 }]);
 });
@@ -238,14 +254,14 @@ test("a choice sends the index of the option pressed", async () => {
 test("a legacy card offers the rewrite and sends restate", async () => {
 	const card = rig(wait(undefined));
 	assert.ok(text(card).includes("api-fix asks: deploy ws01?"), "the tower's own words");
-	act(card, "restate")!.click();
+	go(card, "restate");
 	await settle();
 	assert.deepEqual(sent.map((s) => s.body), [{ op: "press", id: "W9", act: "restate" }]);
 });
 
 test("a secret card on this computer starts with one press that leaves the card open for the second step; on a paired device there is no start button at all", async () => {
 	const local = rig(wait(secret()));
-	act(local, "secret")!.click();
+	go(local, "secret");
 	await settle();
 	assert.deepEqual(sent.map((s) => s.body), [{ op: "press", id: "W9", act: "secret" }]);
 	assert.equal(pressed.length, 0, "the first step ends nothing: the dialog stays");
@@ -253,7 +269,7 @@ test("a secret card on this computer starts with one press that leaves the card 
 	page.body.replaceChildren();
 	const paired = rig(wait(secret()), { remote: true });
 	assert.equal(act(paired, "secret"), undefined);
-	assert.equal(byClass(paired, "wc-primary").length, 0, "no primary");
+	assert.equal(act(paired, "entered"), undefined, "and no second step either");
 	assert.ok(text(paired).includes(m.wc_at_computer()));
 	assert.ok(text(paired).includes(m.wc_b_skip()) && text(paired).includes(m.wc_b_reply()), "the rest of the card stays");
 });
@@ -264,42 +280,134 @@ test("a secret card's second step says where to enter it and finishes with done"
 	card.secretWhen(() => true);
 	card.update(wait(secret(), { press: press("secret", { secretAsked: "2026-11-07T10:58:00Z" }) }));
 	assert.ok(text(card).includes(m.wc_secret_open()), "the raiser's dialog is pending: enter it in the terminal");
-	act(card, "entered")!.click();
+	go(card, "entered");
 	await settle();
 	assert.deepEqual(sent.map((s) => s.body), [{ op: "press", id: "W9", act: "done" }]);
 });
 
-test("Skip needs two taps: the first only unfolds the line, a reason box and the confirm; Cancel folds it; the second tap sends decline with the reason", async () => {
-	const card = rig(wait(fonstar()), { skipOutside: false });
-	const skip = (card.el as unknown as El).find((el) => el.classes.has("wc-skip"))[0]!;
-	const box = byClass(card, "wc-skip-box")[0]!;
+test("Skip is two taps: picking it shows the tells line and the reason box and sends nothing; Send declines with the reason; picking another act folds them (WC-D1 on the panel)", async () => {
+	const card = rig(wait(fonstar()));
+	const box = byClass(card, "wc-reveal")[0]!;
 	assert.equal(box.hidden, true);
-	skip.click();
+	pick(card, "skip");
 	await settle();
 	assert.equal(sent.length, 0, "the first tap sends nothing");
 	assert.equal(box.hidden, false);
 	assert.equal(byClass(card, "wc-skip-tells")[0]!.textContent, m.wc_skip_tells({ name: "mp3946-print" }));
 	assert.equal(card.confirming(), true);
-	byClass(card, "wc-skip-no")[0]!.click();
-	assert.equal(box.hidden, true);
+	pick(card, "done");
+	assert.equal(box.hidden, true, "another act folds the reason box");
+	assert.equal(card.confirming(), false);
 	assert.equal(sent.length, 0);
-	skip.click();
+	pick(card, "skip");
 	const why = byClass(card, "wc-skip-reason")[0]!;
 	assert.equal(why.getAttribute("maxlength"), "120");
 	why.value = "  not needed any more ";
-	byClass(card, "wc-skip-yes")[0]!.click();
+	send(card).click();
 	await settle();
 	assert.deepEqual(sent.map((s) => s.body), [{ op: "press", id: "W9", act: "decline", reason: "not needed any more" }]);
 	assert.equal(pressed.length, 1);
 });
 
 test("Skip without a reason sends none, and for a tower's own wait it tells only the tower", async () => {
-	const card = rig(wait(fonstar({ from: undefined })), { skipOutside: false });
-	(card.el as unknown as El).find((el) => el.classes.has("wc-skip"))[0]!.click();
+	const card = rig(wait(fonstar({ from: undefined })));
+	pick(card, "skip");
 	assert.equal(byClass(card, "wc-skip-tells")[0]!.textContent, m.wc_skip_tells_tower());
-	byClass(card, "wc-skip-yes")[0]!.click();
+	send(card).click();
 	await settle();
 	assert.deepEqual(sent.map((s) => s.body), [{ op: "press", id: "W9", act: "decline" }]);
+});
+
+test("Reply picked shows the answer box; Send is off until it holds words, and sends them to the tower's input with the wait's id; the box empties and the host hears it", async () => {
+	const card = rig(wait(fonstar()));
+	const reveal = byClass(card, "wc-reveal")[0]!, box = byClass(card, "wait-box")[0]!;
+	assert.equal(reveal.hidden, true);
+	pick(card, "reply");
+	assert.equal(reveal.hidden, false);
+	assert.equal(card.isOpen(), true);
+	assert.equal(send(card).disabled, true, "no words, nothing to send");
+	box.value = "  I'll look at it after lunch ";
+	box.dispatchEvent(new Event("input"));
+	assert.equal(send(card).disabled, false);
+	send(card).click();
+	await settle();
+	assert.deepEqual(told, [{ action: "input", body: { text: "  I'll look at it after lunch ", as: "send", answers: "W9" } }]);
+	assert.equal(sent.length, 0, "no press: a reply is words, not a press");
+	assert.equal(box.value, "");
+	assert.equal(card.isOpen(), false);
+	assert.deepEqual(pressed, [m.wait_sent()]);
+});
+
+test("foldReply puts the reply row back unpicked and keeps the draft: Escape's step for the dialog and Zen", () => {
+	const card = rig(wait(fonstar()));
+	assert.equal(card.foldReply(), false, "nothing to fold");
+	pick(card, "reply");
+	byClass(card, "wait-box")[0]!.value = "draft";
+	assert.equal(card.foldReply(), true);
+	assert.equal(card.isOpen(), false);
+	assert.equal(byClass(card, "wait-box")[0]!.value, "draft");
+	assert.equal(act(card, "reply")!.getAttribute("aria-checked"), "false");
+});
+
+test("the card is the question panel: a section.ask with the head, the context, a radiogroup of rows, Send and a status line; no pair-btn stands for an act", () => {
+	const card = rig(wait(choice()));
+	const el = card.el as unknown as El;
+	assert.equal(el.tag, "section");
+	assert.ok(el.classes.has("ask") && el.classes.has("wait-card"));
+	assert.equal(byClass(card, "ask-head").length, 1);
+	const group = byClass(card, "ask-opts")[0]!;
+	assert.equal(group.getAttribute("role"), "radiogroup");
+	assert.deepEqual(el.find((x) => x.classes.has("ask-opt")).map((x) => x.getAttribute("role")), ["radio", "radio", "radio", "radio"], "two options, Reply, Skip");
+	assert.deepEqual(el.find((x) => x.classes.has("ask-opt") && x.tag === "button").map((x) => x.dataset.act), ["choose", "choose", "reply", "skip"]);
+	assert.equal(el.find((x) => x.classes.has("ask-opt") && x.classes.has("pair-btn")).length, 0);
+	assert.equal(note(card).getAttribute("role"), "status");
+	assert.ok(byClass(card, "ask-q")[0]!.textContent.includes(choice().do), "what you decide is the question");
+	assert.equal(byClass(card, "ask-send")[0]!.textContent, m.send());
+	assert.equal(el.find((x) => x.classes.has("wc-primary") || x.classes.has("wc-btn") || x.classes.has("wc-skip-yes")).length, 0, "the old look classes are gone");
+});
+
+test("a pick whose row is gone (the wait was pressed elsewhere meanwhile) is dropped: Send is off and no row is marked", () => {
+	const card = rig(wait(fonstar()));
+	pick(card, "done");
+	assert.equal(send(card).disabled, false);
+	card.update(wait(fonstar(), { answered: AT, press: press("done", { main: { status: "delivered", at: AT } }) }));
+	assert.equal(act(card, "done"), undefined, "the act is gone");
+	assert.equal(send(card).disabled, true, "nothing picked, nothing to send");
+	assert.equal(card.confirming(), false);
+	assert.equal(byClass(card, "ask-opt").some((x) => x.getAttribute("aria-checked") === "true"), false);
+});
+
+test("the raiser's link is a quiet link beside Send, not an act row; a parked card says so in the head and keeps its acts (auto mode §7)", () => {
+	const card = rig(wait(fonstar(), { parked: true }));
+	const link = byClass(card, "wc-main")[0]!;
+	assert.ok(link.classes.has("cmp-link"));
+	assert.equal(link.parent, send(card).parent, "in the same row as Send");
+	const head = byClass(card, "ask-head")[0]!;
+	assert.ok(head.textContent.includes(m.wait_parked()), "the mark is in the head");
+	assert.equal(card.el.getAttribute("data-parked"), "true");
+	assert.ok(act(card, "done") && act(card, "reply") && act(card, "skip"), "the acts stay");
+});
+
+test("a parked secret card has no start row and says to end auto mode above the acts (auto mode 5b's line)", () => {
+	const card = rig(wait(secret(), { parked: true }));
+	assert.equal(act(card, "secret"), undefined);
+	assert.ok(byClass(card, "ask-why").some((x) => x.textContent === m.wc_secret_parked()));
+});
+
+test("a head wait's card names the head tower in its own words (Q3), a workspace's keeps the tower", () => {
+	const head = rig(wait(fonstar()), { head: true });
+	assert.equal(act(head, "reply")!.textContent, m.wc_b_reply_head());
+	pick(head, "skip");
+	assert.equal(byClass(head, "wc-skip-tells")[0]!.textContent, m.wc_skip_tells_head({ name: "mp3946-print" }));
+	assert.notEqual(m.wc_b_reply_head(), m.wc_b_reply());
+	page.body.replaceChildren();
+	assert.equal(act(rig(wait(fonstar())), "reply")!.textContent, m.wc_b_reply());
+	assert.equal(cardModel({ ...base, head: true, wait: wait(fonstar({ from: undefined })) }).raised.startsWith(m.wc_raised_self_head()), true);
+	assert.equal(cardModel({ ...base, head: true, wait: wait(undefined) }).tag, m.wc_tag_legacy_head());
+	assert.equal(cardModel({ ...base, head: true, wait: wait(undefined, { press: press("restate") }) }).line, m.wc_pressed_restate_head());
+	assert.equal(cardModel({ ...base, head: true, phase: "ended", wait: wait(fonstar(), { state: "resolved", outcome: "ok" }) }).line, m.wc_ended_head({ outcome: "ok" }));
+	const done = cardModel({ ...base, head: true, wait: wait(fonstar(), { press: press("done", { main: { status: "delivered", at: AT } }) }) });
+	assert.equal(done.line.endsWith(m.wc_told_both_head({ name: "mp3946-print" })), true);
 });
 
 test("copying a command puts it on the clipboard and posts nothing; where the clipboard is not allowed the text is selected and the card says to long-press", async () => {
@@ -329,17 +437,18 @@ test("copying a command puts it on the clipboard and posts nothing; where the cl
 	delete (globalThis as { getSelection?: unknown }).getSelection;
 });
 
-test("a row folds the card to one line with its primary beside it; a tap unfolds the rest, and an update keeps it unfolded", () => {
+test("a row folds the card to one line with no press beside it; a tap on the line unfolds the panel, and an update keeps it unfolded (Q1)", () => {
 	const card = rig(wait(fonstar()), { host: "row" });
 	const fold = byClass(card, "wc-fold")[0]!;
 	assert.equal(card.el.getAttribute("data-folded"), "true");
 	assert.ok(fold.textContent.includes(m.wc_tag_action()) && fold.textContent.includes(fonstar().do) && fold.textContent.includes("mp3946-print"), "tag, what to do, who raised it");
 	assert.equal(byClass(card, "wc-parts")[0]!.hidden, true);
-	const visible = (card.el as unknown as El).find((el) => el.tag === "button" && el.classes.has("pair-btn") && !el.hidden && Boolean(el.parent?.classes.has("wc-acts"))).map((el) => el.textContent);
-	assert.deepEqual(visible, [m.wc_b_done()], "only the primary beside the line");
+	assert.equal(byClass(card, "ask-opts")[0]!.hidden, true, "no inline act: a folded row loses its button");
+	assert.equal(send(card).parent!.hidden, true);
 	fold.click();
 	assert.equal(card.el.getAttribute("data-folded"), "false");
 	assert.equal(byClass(card, "wc-parts")[0]!.hidden, false);
+	assert.equal(byClass(card, "ask-opts")[0]!.hidden, false);
 	card.update(wait(fonstar(), { at: AT }), true);
 	assert.equal(card.el.getAttribute("data-folded"), "false", "unfolded across a redraw");
 	assert.ok(text(card).includes(m.wc_b_reply()));
@@ -362,6 +471,7 @@ test("a stale stream turns the buttons off and says so; an ended wait is struck 
 	card.update(wait(fonstar()), false);
 	assert.ok(text(card).includes(m.wc_stale()));
 	assert.equal(act(card, "done")!.disabled, true);
+	assert.equal(send(card).disabled, true, "Send is off with the stream");
 	card.update(wait(fonstar(), { state: "resolved", outcome: "done, verified" }), true, true);
 	assert.equal(card.el.getAttribute("data-phase"), "ended");
 	assert.ok(text(card).includes(m.wc_ended({ outcome: "done, verified" })));
@@ -382,7 +492,7 @@ test("a card the snapshot cut is read whole from the memory route once, and draw
 	assert.equal((card.el as unknown as El).dump().includes("raw-session-id"), false, "a raw session id never reaches the page");
 });
 
-test("Enter on a card takes the primary, else the first option, else the reply fold", () => {
+test("Enter on a card takes the chosen act, else the first row", () => {
 	const a = rig(wait(fonstar()));
 	assert.equal(a.enter(), true);
 	assert.equal(page.activeElement, act(a, "done"));
@@ -390,13 +500,16 @@ test("Enter on a card takes the primary, else the first option, else the reply f
 	const c = rig(wait(choice()));
 	assert.equal(c.enter(), true);
 	assert.equal(page.activeElement, act(c, "choose", 0));
+	pick(c, "choose", 1);
+	assert.equal(c.enter(), true);
+	assert.equal(page.activeElement, act(c, "choose", 1), "the picked one");
 });
 
 // --- the CSS --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 const css = readFileSync(new URL("../gui/style.css", import.meta.url), "utf8"), zen = readFileSync(new URL("../gui/zen.css", import.meta.url), "utf8");
 
-test("the phone layout gives every control of a wait card 44 px and 8 px between targets, the primary and each choice the full width", () => {
+test("the phone layout gives every row, Send and link of a wait card 44 px and 8 px between targets, in Standard and in Zen", () => {
 	const open = css.indexOf("@media (max-width: 640px) {", css.indexOf("/* A phone's tap targets"));
 	assert.ok(open > 0);
 	let depth = 0, end = open;
@@ -405,19 +518,26 @@ test("the phone layout gives every control of a wait card 44 px and 8 px between
 		else if (css[at] === "}" && --depth === 0) { end = at; break; }
 	}
 	const block = css.slice(open, end);
-	assert.match(block, /\.wait-card :is\(\.pair-btn, \.wc-fold, \.wc-more\)\s*\{[^}]*min-height:\s*44px/);
-	assert.match(block, /\.wait-card :is\(\.pair-btn, \.wc-fold, \.wc-more\)\s*\{[^}]*min-width:\s*44px/);
-	assert.match(block, /\.wait-card \.wc-acts\s*\{\s*gap:\s*8px/);
-	assert.match(block, /\.wait-card \.wc-primary\s*\{\s*flex:\s*1 1 100%/);
-	assert.match(block, /\.wait-card \.wc-opt\s*\{[^}]*flex:\s*1 1 100%[^}]*min-height:\s*44px/);
+	assert.match(block, /\.wait-card :is\(\.ask-opt, \.ask-send, \.cmp-link, \.pair-btn, \.wc-fold, \.wc-more\)\s*\{[^}]*min-height:\s*44px/);
+	assert.match(block, /\.wait-card :is\(\.ask-opt, \.ask-send, \.cmp-link, \.pair-btn, \.wc-fold, \.wc-more\)\s*\{[^}]*min-width:\s*44px/);
+	assert.match(block, /\.wait-card :is\(\.ask-opts, \.ask-acts\)\s*\{\s*gap:\s*8px/);
 	assert.match(block, /\.wait-card \.wc-url\s*\{\s*overflow-wrap:\s*anywhere/, "a URL wraps anywhere");
 	assert.doesNotMatch(block, /\.wait-card \.wc-cmd/, "a command wraps on a phone as everywhere: no sideways scroll");
+	assert.match(zen, /\[data-view="zen"\] \.wait-card :is\(\.ask-opt, \.ask-send, \.cmp-link, \.pair-btn\)\s*\{[^}]*min-height:\s*44px/, "Zen's skin of the same rows");
 });
 
 test("a part is clamped to three lines by the standard property as well as the prefixed one, and the card has a Zen skin", () => {
 	assert.match(css, /\.wait-card \.wc-clamp\s*\{[^}]*(?<!-webkit-)line-clamp:\s*3/);
 	assert.match(css, /\.wait-card \.wc-clamp\s*\{[^}]*-webkit-line-clamp:\s*3/);
-	assert.match(zen, /\[data-view="zen"\] \.wait-card \.pair-btn\s*\{[^}]*min-height:\s*44px/);
+	assert.doesNotMatch(zen, /\.wait-card \.wc-(opt|primary)/, "Zen draws the card's acts as the question panel's rows, not a skin of its own");
+});
+
+test("Raven's ornaments (the double rule and the ticks) stay off a card nested in the tower card, the tower's notices, and the return panel: one rule, not two", () => {
+	const raven = readFileSync(new URL("../gui/themes/raven/raven.css", import.meta.url), "utf8");
+	const lines = raven.split("\n").filter((l) => l.includes('html[data-view="raven"] .ask:not('));
+	assert.equal(lines.length, 2, "the rule's border and its ticks");
+	for (const line of lines) for (const host of [".dialog .ask", ".link-alert .ask", ".tcard .ask", ".tower-notices .ask", ".auto-back .ask"]) assert.ok(line.includes(host), `${host} is excluded`);
+	assert.doesNotMatch(css + zen, /\.wait-card \.wc-(btn|opt|primary|state|fail|acts)\b/, "the old look rules are gone: the card wears the panel's");
 });
 
 // RR-F002 (todo #121 task 7): a wait card turned off because its unit's box is away says box_answer_blocked in the status line (role=status) and in the reply box's note; the stale-connection words are for a stream that is the cause.
@@ -428,19 +548,19 @@ test("RR-F002 the model: a stale card with a box reason shows the reason in plac
 	assert.equal(cardModel({ ...base, phase: "stale", wait: wait(fonstar()) }).line, m.wc_stale(), "no reason: the stream is the cause");
 });
 
-test("RR-F002 the card: a card off for an away box says box_answer_blocked in its status (not the stale words), its reply box says it too, and the box's return clears both", () => {
+test("RR-F002 the card: a card off for an away box says box_answer_blocked in its status (not the stale words), and the box's return clears it", () => {
 	const card = rig(wait(fonstar()));
 	card.update(wait(fonstar()), false, false, m.box_answer_blocked());
-	const el = card.el as unknown as El, status = el.find((x) => x.classes.has("wc-state"))[0]!;
+	const status = note(card);
 	assert.equal(status.getAttribute("role"), "status");
 	assert.equal(status.textContent, m.box_answer_blocked());
 	assert.ok(!text(card).includes(m.wc_stale()), "not the connection words");
 	assert.equal(act(card, "done")!.disabled, true);
-	(el.find((x) => x.classes.has("wait-go"))[0] as El).click();
-	assert.equal(el.find((x) => x.classes.has("wait-note"))[0]!.textContent, m.box_answer_blocked(), "the reply box says the same, not that the page is offline");
+	pick(card, "reply");
+	assert.equal(send(card).disabled, true, "nothing is sent while the box is away");
+	assert.equal(status.textContent, m.box_answer_blocked(), "the same line, with the reply picked");
 	card.update(wait(fonstar()), false);
 	assert.equal(status.textContent, m.wc_stale(), "a dropped stream alone: the connection words");
-	assert.equal(el.find((x) => x.classes.has("wait-note"))[0]!.textContent, m.link_offline());
 	card.update(wait(fonstar()), true);
 	assert.equal(status.textContent, "");
 	assert.equal(act(card, "done")!.disabled, false);

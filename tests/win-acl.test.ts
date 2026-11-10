@@ -113,7 +113,20 @@ test("#132: the launch script makes the process through WMI, leaves the ACL chec
 	const raw = readFileSync(aclMarkerPath(dir, token), "utf8");
 	const marker = JSON.parse(raw) as { pid: number; error?: string; sid?: string; started?: string; dir?: string };
 	assert.equal(marker.error, undefined, raw);
-	assert.match(answer.started ?? "", ISO, `${stdout}\n${raw}`);
+	let alive = "alive";
+	try {
+		process.kill(answer.pid, 0);
+	} catch (error) {
+		alive = String(error);
+	}
+	const later = startCommand(answer.pid);
+	let again = "";
+	try {
+		again = execFileSync(later.file, later.args, { ...later.options, stdio: "pipe" }).trim();
+	} catch (error) {
+		again = `failed: ${String((error as Error).message).slice(0, 300)}`;
+	}
+	assert.match(answer.started ?? "", ISO, `${stdout}\n${raw}\n${alive}; startCommand now: ${again}`);
 	assert.equal(marker.pid, answer.pid);
 	assert.match(marker.sid ?? "", /^S-1-/);
 	assert.equal(marker.started, answer.started);

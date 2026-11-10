@@ -78,7 +78,10 @@ test("a main's kind is an optional seventh field of its entry: the word of a coo
 	assert.deepEqual(decodePlaintext("unit-status", seven), { units, mains: [main({ kind: "integrator" })] });
 	assert.equal(decodePlaintext("unit-status", six)!.mains![0]!.kind, undefined, "an entry of six fields has no kind key at all");
 	for (const kind of ["coordinator", "integrator", "standing", "train"]) assert.equal(decodePlaintext("unit-status", encodePlaintext("unit-status", { units, mains: [main({ kind })] }))!.mains![0]!.kind, kind);
-	assert.equal(decodePlaintext("unit-status", encodePlaintext("unit-status", { units, mains: [main({ kind: "k".repeat(40) })] }))!.mains![0]!.kind!.length, LIMITS.mainKind);
+	const cutKind = (b: Buffer) => dec(entry(b))[6]!;
+	assert.equal(cutKind(encodePlaintext("unit-status", { units, mains: [main({ kind: "k".repeat(40) })] })).length, LIMITS.mainKind, "the encoder itself writes 16 bytes of an oversize kind");
+	const long = enc(str(HANDLE), str("build"), str("docs"), str("idle"), str(alice.id), bool(false), str("k".repeat(40)));
+	assert.equal(decodePlaintext("unit-status", enc(dec(six)[0]!, list([long])))!.mains![0]!.kind, "k".repeat(LIMITS.mainKind), "the decoder cuts a peer's oversize kind to 16 bytes itself, whatever its encoder wrote");
 	const eight = enc(str(HANDLE), str("build"), str("docs"), str("idle"), str(alice.id), bool(false), str("train"), str("x"));
 	assert.equal(decodePlaintext("unit-status", enc(dec(six)[0]!, list([eight]))), null, "eight fields");
 });

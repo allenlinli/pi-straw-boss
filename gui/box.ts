@@ -49,7 +49,7 @@ function drawRuns(el: HTMLElement, b: Base, r: Runs) {
 	const live = b.box?.state === "live", mine = live ? r.rows : [], more = el.querySelector<HTMLButtonElement>(".box-more")!;
 	drawList(el.querySelector<HTMLElement>(".box-runs")!, b, mine.filter((row) => !TOWER_ROLES.includes(row.role)), (count) => m.box_runs({ count }));
 	drawList(el.querySelector<HTMLElement>(".box-truns")!, b, mine.filter((row) => TOWER_ROLES.includes(row.role)), (count) => m.box_tower_runs({ count }));
-	more.hidden = !live || !r.before || !mine.length;
+	more.hidden = !live || !r.before;
 	more.textContent = m.box_runs_more();
 }
 function ask(el: HTMLElement, b: Base, r: Runs, before?: string) {

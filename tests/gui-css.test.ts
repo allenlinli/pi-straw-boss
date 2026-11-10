@@ -535,3 +535,18 @@ test("the comms log keeps a fling to itself in every view: at its end or top the
 	assert.match(base.body, /(^|[;\s])overscroll-behavior: contain\b/, "the base rule, not only the phone's: the Standard and Geek page is taller than the window (the footer follows the log's panel)");
 	assert.ok(!rulesOf(css).some((r) => r.parts.some((p) => /\.chat-scroll\b/.test(p)) && /(^|[;\s])overscroll-behavior: auto\b/.test(r.body)), "no view takes it back");
 });
+
+test("a main's row on an ally card is one line at every width: Stop keeps the right end, the name and then \"by\" ellipsize (by first), the kind and state words stay whole (rev-F001, todo #150)", () => {
+	const get = (selector: string, prop: string) => rulesOf(css).filter((r) => r.parts.length === 1 && r.parts[0] === selector).flatMap((r) => declarations(r.body)).find(([p]) => p === prop)?.[1]; // the phone's rule for the row's height is another rule of the same selector
+	assert.equal(get(".au-main", "display"), "flex");
+	assert.equal(get(".au-main", "flex-wrap"), "nowrap", "a wrapping row sends Stop to a line of its own once the words outgrow the card");
+	assert.equal(get(".au-main", "min-width"), "0");
+	for (const part of [".au-mname", ".au-mby"]) assert.deepEqual(["0", "hidden", "ellipsis", "nowrap"], [get(part, "min-width"), get(part, "overflow"), get(part, "text-overflow"), get(part, "white-space")], `${part} shrinks below its text and ends in an ellipsis`);
+	const shrink = (value: string | undefined) => Number(value!.split(/\s+/)[1]);
+	assert.ok(shrink(get(".au-mby", "flex")) > 1, "by gives way before the name: it shrinks faster than the name's default 1");
+	assert.equal(get(".au-mname", "flex"), undefined, "the name keeps the default shrink of 1");
+	assert.match(get(".au-mstate", "flex")!, /^none$/, "the state word stays whole");
+	assert.equal(get(".au-mstate", "white-space"), "nowrap");
+	assert.equal(get(".role", "flex"), "none", "and so does the kind word (`.au-mkind` is a `.role`)");
+	assert.match(css, /:where\(\.au-stop\) \{ margin-left: auto; flex: none;/, "Stop is not shrunk and sits at the right end");
+});

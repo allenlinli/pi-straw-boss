@@ -56,7 +56,7 @@ const FULL = view({ confirms: CONFIRMS.map((c) => ({ ...c, team: TEAMS[0]!.team 
 
 const TOKEN = "fake-qzx-relay", INVITE = encodeInvite({ relay: "https://relay.example", team: Buffer.alloc(16, 7), secret: Buffer.alloc(32, 9), inviterId: "a".repeat(26), inviterKeyHash: Buffer.alloc(32, 5), forDevice: "" });
 
-interface WorldOptions { ui?: boolean; confirm?: boolean | boolean[]; selects?: (string | undefined)[]; inputs?: (string | undefined)[]; lang?: string; custom?: boolean; /** The confirm throws (a pi that fails under the dialog). */ boom?: boolean; /** What the server answers a request to mark the pane local-only. */ markError?: string }
+interface WorldOptions { ui?: boolean; confirm?: boolean | boolean[]; selects?: (string | undefined)[]; inputs?: (string | undefined)[]; lang?: string; custom?: boolean | "noop"; /** The confirm throws (a pi that fails under the dialog). */ boom?: boolean; /** What the server answers a request to mark the pane local-only. */ markError?: string }
 function world({ ui = true, confirm = true, selects = [], inputs = [], lang = "en", custom = true, boom = false, markError }: WorldOptions = {}) {
 	// The pane's mark at the server (src/heremark.ts), made of the real marks: `during` is what a paired device's key pad would meet when each pi screen opened.
 	const hw = hereWorld("wA:p1", markError ? { reply: () => ({ ok: false, error: markError }) } : {}), during: { kind: string; marked: boolean }[] = [];
@@ -79,7 +79,7 @@ function world({ ui = true, confirm = true, selects = [], inputs = [], lang = "e
 		select: async (title: string, options: string[], opts?: Record<symbol, unknown>) => (selected.push({ title, options, ...(opts ? { opts } : {}) }), during.push({ kind: "select", marked: hw.marked() }), selectQueue.shift()),
 		input: async (title: string) => (typed.push({ title }), inputQueue.shift()),
 		notify: () => {},
-		...(custom ? {
+		...(custom === "noop" ? { custom: async () => undefined } : custom ? {
 			// A pi screen the test types on: every script is the keys of one ui.custom call; a frame is what the component drew after each key.
 			custom: async (factory: (tui: unknown, theme: unknown, keys: unknown, done: (v: unknown) => void) => Promise<{ render(w: number): string[]; handleInput(d: string): void }> | { render(w: number): string[]; handleInput(d: string): void }) => {
 				const script = keys.shift();
@@ -535,7 +535,9 @@ const SELF_ID = idOf("boss22"), MEI_ID = idOf("mei222"), LEE_ID = idOf("lee333")
 const mate = (id: string, label: string, over: Record<string, unknown> = {}) => ({ id, short: id.slice(0, 6), label, labelKnown: true, duplicate: false, role: "member", attended: true, self: false, online: true, seenAgoMs: 1000, headSeq: 3, trust: "reply", ...over });
 const ADMIN_TEAMS = [
 	{ team: "t1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", name: "Shop floor", status: "running", self: { role: "admin", attended: true }, onlyAdmin: false, members: [mate(SELF_ID, "Boss Mac", { self: true, role: "admin" }), mate(MEI_ID, "Mei's Mac", { role: "admin", trust: "forward" }), mate(LEE_ID, "Lee", { trust: "dispatch" }), mate(KIOSK_ID, "Kiosk", { attended: false })] },
-	{ team: "t2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", name: "Annex", status: "running", self: { role: "member", attended: true }, onlyAdmin: false, members: [mate(SELF_ID, "Boss Mac", { self: true }), mate(MEI_ID, "Mei's Mac", { trust: "forward" }), mate(idOf("twin22"), "Twin"), mate(idOf("twin33"), "Twin")] },
+	{ team: "t2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", name: "Annex", status: "running", self: { role: "admin", attended: true }, onlyAdmin: false, members: [mate(SELF_ID, "Boss Mac", { self: true }), mate(MEI_ID, "Mei's Mac", { trust: "forward" }), mate(idOf("twin22"), "Twin"), mate(idOf("twin33"), "Twin")] },
+	{ team: "t3cccccccccccccccccccccccccccccc", name: "Lodge", status: "running", self: { role: "member", attended: true }, onlyAdmin: false, members: [mate(SELF_ID, "Boss Mac", { self: true }), mate(MEI_ID, "Mei's Mac", { role: "admin" })] },
+	{ team: "t4dddddddddddddddddddddddddddddd", name: "Forked", status: "stopped", self: { role: "admin", attended: true }, onlyAdmin: false, members: [] },
 ];
 const ADMIN_VIEW = view({ teams: ADMIN_TEAMS });
 const adminWorld = (options: WorldOptions = {}) => {
@@ -596,10 +598,12 @@ test("invite <team>: a no, a missing or non-private screen, an unknown or ambigu
 	assert.deepEqual([w.at("link/invite"), w.told.map((t) => t.level)], [[], ["error", "error"]]);
 	assert.match(w.told[0]!.text, /No team is named or starts with "zzzz"/);
 	const refused = adminWorld();
-	refused.reply("link/invite", { status: 409, body: { reason: `Only an attended member of the team can invite ${HOLDER_TEXT}` } });
+	refused.reply("link/invite", { status: 409, body: { reason: "That device is in the team already", text: HOLDER_TEXT } });
 	await refused.run("invite Annex");
 	assert.equal(refused.last().level, "error");
-	assert.equal(refused.frames.length, 0);
+	assert.equal(refused.frames.length, 0, "no screen is drawn for a refusal");
+	assert.equal(refused.last().text, "That device is in the team already");
+	assert.ok(!JSON.stringify([refused.told, refused.asked, refused.frames, refused.piCalls]).includes(HOLDER_TEXT), "a text on a refusal is neither told nor drawn");
 	const odd = adminWorld();
 	odd.reply("link/invite", { status: 200, body: {} });
 	await odd.run("invite Annex");
@@ -659,7 +663,7 @@ test("role asks hereOnly with the team, the device and what the role gives or ta
 	assert.deepEqual(w.at("link/role").map((p) => p.json), [{ team: "t1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", device: LEE_ID, role: "admin" }, { team: "t1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", device: MEI_ID, role: "member" }]);
 	assert.match(w.last().text, /Mei's Mac.*member/);
 	w.reply("link/role", { status: 409, body: { reason: "That would leave the team without an attended admin" } });
-	await w.run("role Annex mei222 admin");
+	await w.run('role "Shop floor" mei222 member');
 	assert.deepEqual(w.last(), { text: "That would leave the team without an attended admin", level: "error" });
 });
 
@@ -723,6 +727,55 @@ test("every admin write opens its confirm with the pane marked, and what a teamm
 	await evil.run('remove "Shop floor" lee333');
 	assert.ok(!/[\x00-\x08\x0b-\x1f\x7f‮]/.test(evil.asked[0]!.body.replace(/\n/g, "")), "no raw control or bidi character reaches the confirm");
 	assert.match(evil.asked[0]!.body, /Lee\\x1b\[2K\\u202eevil/);
+});
+
+test("LA-F001: a ui whose custom draws nothing (pi's RPC mode) cancels the invite it just made and tells it has no private screen", async () => {
+	const w = adminWorld({ custom: "noop" });
+	w.reply("link/invite", { status: 200, body: { text: INVITE, expires: Date.now() + 9 * 60_000, hash: "ff00ff00ff00" } });
+	await w.run("invite Annex");
+	assert.deepEqual(w.at("link/invite-cancel"), [{ path: "link/invite-cancel", json: { hash: "ff00ff00ff00" } }]);
+	assert.deepEqual(w.last(), { text: "This screen cannot take a secret without showing it (it has no private screen); do this in a pi terminal", level: "error" });
+	assert.ok(!JSON.stringify([w.told, w.asked, w.piCalls]).includes(INVITE.slice(12, 50)), "the text is shown nowhere");
+});
+
+test("LA-F002: every confirm and list that shows a teammate's label, short id or team name writes control and bidi characters out", async () => {
+	const bad = "\x1b[2K\u202eevil", short = "S\x1b[8mx";
+	const evil = world();
+	const team = { ...ADMIN_TEAMS[0]!, name: `Sh${bad}op`, members: [ADMIN_TEAMS[0]!.members[0], mate(LEE_ID, `Lee${bad}`, { short }), mate(idOf("dupe11"), `Dup${bad}`), mate(idOf("dupe22"), `Dup${bad}`)] };
+	evil.reply("link/state", { status: 200, body: { view: view({ teams: [team] }) } });
+	for (const line of ["trust lee333 dispatch", "role t1aaaa lee333 admin", "remove t1aaaa lee333", "trust dupe reply", "role t1aaaa dupe admin", "role t1aaaa nobody admin"]) await evil.run(line);
+	assert.equal(evil.asked.length, 3);
+	assert.equal(evil.told.filter((t) => t.level === "error").length, 3, "the ambiguous list twice and the unknown device once");
+	for (const text of [...evil.asked.map((a) => a.body), ...evil.told.map((t) => t.text)]) assert.ok(!RAW.test(text.replace(/\n/g, "")), JSON.stringify(text));
+	assert.match(evil.asked[0]!.body, /Lee\\x1b\[2K\\u202eevil \(S\\x1b\[8mx\)/, "trust: label and short id");
+	assert.match(evil.asked[1]!.body, /Lee\\x1b\[2K\\u202eevil/, "role: label");
+	assert.match(evil.asked[2]!.body, /\(S\\x1b\[8mx\)/, "remove: short id");
+	assert.match(evil.told.find((t) => /More than one/.test(t.text))!.text, /Dup\\x1b\[2K\\u202eevil/, "the list of candidates");
+	assert.match(evil.told.find((t) => /No device/.test(t.text))!.text, /Sh\\x1b\[2K\\u202eevilop/, "the team in the unknown-device refusal");
+});
+
+test("LA-F003: an upper-case start of an id is ambiguous with a device labelled with it, as the lower-case one is", async () => {
+	const w = world();
+	w.reply("link/state", { status: 200, body: { view: view({ teams: [{ ...ADMIN_TEAMS[0]!, members: [ADMIN_TEAMS[0]!.members[0], mate(MEI_ID, "Mei"), mate(LEE_ID, "MEI22")] }] }) } });
+	for (const q of ["MEI22", "mei22"]) await w.run(`trust ${q} dispatch`);
+	assert.deepEqual([w.at("link/trust"), w.asked], [[], []]);
+	for (const t of w.told) assert.match(t.text, /More than one device is named or starts with .*by more of its id/s);
+	assert.equal(w.told.length, 2);
+});
+
+test("LA-F004: an act the view shows the holder refuses is refused before any confirm: not an admin, a stopped team, the role it has, an unattended admin", async () => {
+	const w = adminWorld();
+	const lines = ["rotate Lodge", "role Lodge mei222 member", "remove Lodge mei222", "rotate Forked", "invite Forked", 'role "Shop floor" mei222 admin', 'role "Shop floor" kiosk4 admin'];
+	for (const line of lines) await w.run(line);
+	assert.deepEqual([w.asked, w.posted.filter((p) => p.path !== "link/state")], [[], []]);
+	assert.deepEqual(w.told.map((t) => t.level), ["error", "error", "error", "error", "error", undefined, "error"]);
+	assert.match(w.told[0]!.text, /not an admin of Lodge/);
+	assert.match(w.told[3]!.text, /Team Forked is stopped/);
+	assert.match(w.told[5]!.text, /Mei's Mac is an admin already/);
+	assert.match(w.told[6]!.text, /Kiosk is an unattended device/);
+	const z = adminWorld({ lang: "zh-TW" });
+	await z.run("rotate Lodge");
+	assert.match(z.last().text, /不是 Lodge 的管理員/);
 });
 
 test("zh-TW words the admin lines in Traditional Chinese", async () => {

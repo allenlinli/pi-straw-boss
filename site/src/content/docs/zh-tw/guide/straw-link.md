@@ -13,10 +13,10 @@ Straw Link 把做同一個專案的隊友電腦上的塔台連起來。
 
 1. **設定。** 在頁面上，設定 → 團隊 → **設定 Straw Link**，或在 pi 裡用 `/boss link on`。
 2. **建立團隊**，對應一個專案資料夾，需要 relay 的 origin 與它的一次性團隊 token：設定 → 團隊 → 建立，或 `/boss link create <relay> <dir>`。
-3. **邀請**隊友：頁面以 QR code 與文字顯示邀請，10 分鐘內有效。
+3. **邀請**隊友：頁面以 QR code 與文字顯示邀請，10 分鐘內有效；在 pi 裡用 `/boss link invite <team>`，文字顯示在私密畫面上。
 4. **加入**，在隊友的電腦上：貼上邀請（或 `/boss link join @file`）並選專案資料夾。頁面會顯示四個安全字；邀請者要從一堆誘餌中挑出相符的那一組，才算核准加入。
 
-管理員可以移除裝置、變更角色與輪替團隊金鑰；任何人都可以離開團隊。
+管理員可以移除裝置、變更角色與輪替團隊金鑰；任何人都可以離開團隊。在 pi 裡同樣可以輸入這些動作：`/boss link trust <device> <level>`、`/boss link role <team> <device> admin|member`、`/boss link remove <team> <device>`、`/boss link rotate <team>`，每個都會先在這台電腦上詢問。
 
 ## 信任
 
@@ -46,7 +46,7 @@ Straw Link 把做同一個專案的隊友電腦上的塔台連起來。
 
 ## 在 pi 裡
 
-`/boss link` 列出這台電腦的團隊、成員與等待中的加入請求；其他 `/boss link` 行則回答 confirm 與轉送來的問題、顯示並取消邀請，以及停掉盒子上的單位。
+`/boss link` 列出這台電腦的團隊、成員與等待中的加入請求；其他 `/boss link` 行則回答 confirm 與轉送來的問題、建立、顯示並取消邀請、執行上述管理動作，以及停掉盒子上的單位。
 見[指令](/pi-straw-boss/docs/zh-tw/reference/commands/#straw-link)。
 
 規則見 [Straw Link](/pi-straw-boss/docs/zh-tw/reference/how-it-works/how-it-works/#straw-link跨電腦的塔台連線持有者) 與 [Straw Link operate](/pi-straw-boss/docs/zh-tw/reference/how-it-works/how-it-works/#straw-link-operate有人看管的電腦操作無人值守的盒子)。

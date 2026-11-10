@@ -166,7 +166,7 @@ const WORDS = {
 		invFooter: "Enter or Esc closes this screen. The text is a credential: it is shown here and nowhere else.",
 		joinCancelled: "Cancelled the join",
 		noDevice: (q: string, team: string) => `No device${team ? ` in team ${team}` : ""} is named or starts with "${q}" (a label, a short id, or four or more characters of its id)`,
-		manyDevices: (q: string, list: string, team: string) => `More than one device${team ? ` in ${team}` : ""} is named or starts with "${q}"; nothing was done. Name one by its short id:\n${list}`,
+		manyDevices: (q: string, list: string, team: string) => `More than one device${team ? ` in ${team}` : ""} is named or starts with "${q}"; nothing was done. Name one by more of its id:\n${list}`,
 		notSelf: "This is this computer: the page changes other devices only (leave a team with /boss link leave <team>)",
 		badDeviceId: "A device id is 26 characters (a to z, 2 to 7), the one in the unattended device's link/device.id",
 		inviteTitle: "Make an invite?",
@@ -175,6 +175,11 @@ const WORDS = {
 		trustBody: (name: string, short: string, from: string, to: string, help: string) => `${name} (${short}): from ${from} to ${to}, for every team this computer shares with it. ${help}`,
 		levelHelp: { reply: "reply: the allowed read-only tools run; anything else asks you here", forward: "forward: the same, but anything else asks that device's owner on their computer", dispatch: "dispatch: runs as a message from you would, under this computer's own guards" } as Record<string, string>,
 		trustSame: (name: string, level: string) => `${name} is already ${level}: nothing to change`,
+		notRunning: (team: string) => `Team ${team} is stopped on this computer: nothing can be done in it`,
+		notAdmin: (team: string) => `This device is not an admin of ${team}: only an admin can do this`,
+		notAttendedSelf: (team: string) => `This device is not an attended member of ${team}: only an attended member can invite`,
+		roleSame: (name: string, to: string) => `${name} is ${to === "admin" ? "an admin" : "a member"} already: nothing to change`,
+		adminAttended: (name: string) => `${name} is an unattended device: only an attended device can be an admin`,
 		trustDone: (name: string, level: string) => `Set the trust of ${name} to ${level}`,
 		roleTitle: "Change this device's role?",
 		roleBody: (name: string, short: string, team: string, admin: boolean) => (admin ? `${name} (${short}) becomes an admin of ${team}: it can remove devices, change roles and rotate the team key, as you can.` : `${name} (${short}) becomes a member of ${team}: it can no longer remove devices, change roles or rotate the key.`),
@@ -265,7 +270,7 @@ const WORDS = {
 		invFooter: "按 Enter 或 Esc 關閉這個畫面。這段文字是憑證：只在這裡顯示，不會出現在別處。",
 		joinCancelled: "已取消加入",
 		noDevice: (q: string, team: string) => `${team ? `團隊 ${team} 裡` : ""}沒有名為或以「${q}」開頭的裝置（名稱、短 id，或 id 的前四碼以上）`,
-		manyDevices: (q: string, list: string, team: string) => `${team ? `團隊 ${team} 裡` : ""}不只一個裝置名為或以「${q}」開頭，什麼都沒做。請用短 id 指明其中一個：\n${list}`,
+		manyDevices: (q: string, list: string, team: string) => `${team ? `團隊 ${team} 裡` : ""}不只一個裝置名為或以「${q}」開頭，什麼都沒做。請用 id 更長的一段指明其中一個：\n${list}`,
 		notSelf: "這是這台電腦：頁面只改其他裝置（要離開團隊，用 /boss link leave <團隊>）",
 		badDeviceId: "裝置 id 是 26 個字元（a 到 z、2 到 7），就是無人值守裝置的 link/device.id 裡的那一串",
 		inviteTitle: "要建立邀請嗎？",
@@ -274,6 +279,11 @@ const WORDS = {
 		trustBody: (name: string, short: string, from: string, to: string, help: string) => `${name}（${short}）：從 ${from} 改為 ${to}，對這台電腦與它共有的每個團隊都生效。${help}`,
 		levelHelp: { reply: "reply：允許的唯讀工具會執行；其他的在這裡問你", forward: "forward：同上，但其他的會問那部裝置的主人，在他的電腦上", dispatch: "dispatch：照你本人送來的訊息執行，受這台電腦自己的防護限制" } as Record<string, string>,
 		trustSame: (name: string, level: string) => `${name} 已經是 ${level}：不用改`,
+		notRunning: (team: string) => `團隊 ${team} 在這台電腦上已停止：什麼都不能做`,
+		notAdmin: (team: string) => `這台裝置不是 ${team} 的管理員：只有管理員能這樣做`,
+		notAttendedSelf: (team: string) => `這台裝置不是 ${team} 的有人值守成員：只有有人值守的成員能邀請`,
+		roleSame: (name: string, to: string) => `${name} 已經是${to === "admin" ? "管理員" : "成員"}：不用改`,
+		adminAttended: (name: string) => `${name} 是無人值守的裝置：只有有人值守的裝置能當管理員`,
 		trustDone: (name: string, level: string) => `已把 ${name} 的信任設為 ${level}`,
 		roleTitle: "要改變這部裝置的角色嗎？",
 		roleBody: (name: string, short: string, team: string, admin: boolean) => (admin ? `${name}（${short}）將成為 ${team} 的管理員：它能像你一樣移除裝置、改變角色、輪替團隊金鑰。` : `${name}（${short}）將成為 ${team} 的成員：它不能再移除裝置、改變角色或輪替金鑰。`),
@@ -334,7 +344,7 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 	 * another's would shadow it, so more than one is ambiguous, and all of them are returned for the boss to tell apart.
 	 */
 	function lookup<T>(list: T[], q: string, keys: (x: T) => string[], id: (x: T) => string): { one: T } | { error: "none" } | { error: "many"; hits: T[] } {
-		const low = q.toLowerCase(), hits = list.filter((x) => keys(x).some((k) => k.toLowerCase() === low) || (q.length >= MIN_ID && (id(x).startsWith(q) || plain(id(x)).startsWith(q))));
+		const low = q.toLowerCase(), hits = list.filter((x) => keys(x).some((k) => k.toLowerCase() === low) || (q.length >= MIN_ID && (id(x).toLowerCase().startsWith(low) || plain(id(x)).toLowerCase().startsWith(low))));
 		return hits.length === 1 ? { one: hits[0]! } : hits.length ? { error: "many", hits } : { error: "none" };
 	}
 	/** Ids as a listing shows them: the first eight characters as the boss reads them, and the whole id (to 64) where another listed id starts with those eight, so two ids that look alike are told apart. */
@@ -483,9 +493,9 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		await drawInvite(text, reply.body.expires, i.teamName, i.forDevice);
 	}
 	/** An invite's text on the private screen (secretscreen.ts), until the boss closes it: the one place the text is drawn. */
-	async function drawInvite(text: string, expires: unknown, teamName: string, forDevice: string) {
+	async function drawInvite(text: string, expires: unknown, teamName: string, forDevice: string): Promise<boolean> {
 		const left = typeof expires === "number" ? expires - Date.now() : 0, ui = s.ui!;
-		await here(() => showScreen(ui, { title: t().invTitle(line(teamName), line(forDevice.slice(0, 6))), lines: [text, "", t().invValid(t().left(Math.max(0, left)))], footer: t().invFooter }));
+		return here(() => showScreen(ui, { title: t().invTitle(line(teamName), line(forDevice.slice(0, 6))), lines: [text, "", t().invValid(t().left(Math.max(0, left)))], footer: t().invFooter }));
 	}
 	/** `invite <team> [unattended <device>]`: the page's Invite and Invite an unattended device, after a confirm. The screen comes first (the text could not be shown otherwise), the confirm second, the invite last. */
 	async function makeInvite(team: string, device: string | undefined) {
@@ -496,10 +506,15 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		if (!got) return;
 		const x = pickTeam(got.view, team);
 		if (!x) return;
+		if (x.status !== "running") return tell(t().notRunning(line(x.name)), "error");
+		if (!x.self.attended) return tell(t().notAttendedSelf(line(x.name)), "error");
 		if (!(await confirm(t().inviteTitle, t().inviteBody(line(x.name), x.team.slice(0, 6), forDevice ? line(forDevice) : ""), true))) return tell(t().declined);
 		const reply = await post(got.r, "link/invite", { team: x.team, ...(forDevice ? { forDevice } : {}) }, 30_000), text = reply.body.text;
 		if (reply.status !== 200 || typeof text !== "string") return tell(refusal(reply), "error");
-		await drawInvite(text, reply.body.expires, x.name, forDevice ?? "");
+		if (await drawInvite(text, reply.body.expires, x.name, forDevice ?? "")) return;
+		// pi's no-op `ui.custom` (RPC mode) draws nothing: the invite just made could not be read, so it is cancelled.
+		if (typeof reply.body.hash === "string") await post(got.r, "link/invite-cancel", { hash: reply.body.hash }, 10_000);
+		tell(t().noPrivate, "error");
 	}
 	async function leave(team: string, force: boolean) {
 		if (!needScreen()) return;
@@ -525,7 +540,10 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 	async function inTeam(team: string, device?: string) {
 		if (!needScreen()) return;
 		const got = await state(), x = got && pickTeam(got.view, team), m = x && device !== undefined ? deviceOf(x.members, device, x.name) : undefined;
-		return got && x && (device === undefined || m) ? { r: got.r, x, m: m! } : undefined;
+		if (!got || !x || (device !== undefined && !m)) return undefined;
+		if (x.status !== "running") return void tell(t().notRunning(line(x.name)), "error");
+		if (x.self.role !== "admin") return void tell(t().notAdmin(line(x.name)), "error");
+		return { r: got.r, x, m: m! };
 	}
 	async function trust(device: string, level: Level) {
 		if (!needScreen()) return;
@@ -541,6 +559,8 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		const got = await inTeam(team, device);
 		if (!got) return;
 		const name = line(got.m.label), where = line(got.x.name);
+		if (got.m.role === to) return tell(t().roleSame(name, to));
+		if (to === "admin" && !got.m.attended) return tell(t().adminAttended(name), "error");
 		if (!(await confirm(t().roleTitle, t().roleBody(name, line(got.m.short), where, to === "admin"), true))) return tell(t().declined);
 		const reply = await post(got.r, "link/role", { team: got.x.team, device: got.m.id, role: to }, 60_000);
 		reply.status === 200 ? tell(t().roleDone(name, where, to === "admin")) : tell(refusal(reply), "error");

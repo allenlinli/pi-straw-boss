@@ -13,10 +13,10 @@ On each computer the sb server holds the link, so no pi session has to stay open
 
 1. **Set it up.** On the page, Settings → Teams → **Set up Straw Link**, or `/boss link on` in pi.
 2. **Create a team** for a project folder with the relay's origin and its one-time team token: Settings → Teams → Create, or `/boss link create <relay> <dir>`.
-3. **Invite** a teammate: the page shows the invite as a QR code and as text, valid for 10 minutes.
+3. **Invite** a teammate: the page shows the invite as a QR code and as text, valid for 10 minutes; in pi, `/boss link invite <team>` shows the text on a private screen.
 4. **Join** on the teammate's computer: paste the invite (or `/boss link join @file`) and pick the project folder. The page shows four safety words; the inviter picks the matching set among decoys to approve the join.
 
-Admins remove a device, change a role, and rotate the team key; anyone leaves the team.
+Admins remove a device, change a role, and rotate the team key; anyone leaves the team. In pi the same acts are typed: `/boss link trust <device> <level>`, `/boss link role <team> <device> admin|member`, `/boss link remove <team> <device>` and `/boss link rotate <team>`, each asked on this computer first.
 
 ## Trust
 
@@ -46,7 +46,7 @@ See [Setting up an unattended device](/pi-straw-boss/docs/guide/unattended-devic
 
 ## In pi
 
-`/boss link` lists this computer's teams, members, and waiting join requests; the other `/boss link` lines answer confirms and forwarded questions, show and cancel invites, and stop a unit on a box.
+`/boss link` lists this computer's teams, members, and waiting join requests; the other `/boss link` lines answer confirms and forwarded questions, make, show and cancel invites, run the admin acts above, and stop a unit on a box.
 See [Commands](/pi-straw-boss/docs/reference/commands/#straw-link).
 
 The rules are in [Straw Link](/pi-straw-boss/docs/reference/how-it-works/how-it-works/#straw-link-towers-across-computers-the-link-holder) and [Straw Link operate](/pi-straw-boss/docs/reference/how-it-works/how-it-works/#straw-link-operate-an-attended-computer-drives-an-unattended-box).

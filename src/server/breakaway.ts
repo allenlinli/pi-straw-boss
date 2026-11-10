@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { alive as pidAlive } from "../remote.ts";
 import { powershellEnv, powershellPath, system32 } from "../winpath.ts";
-import { ACL_STEPS, OWNER_OK_PS, aclMarkerPath, asciiJson, asciiLine, CLM_CHECK, execFailure, POWERSHELL_FLAGS, PROGRESS_OFF, UTF8_OUT } from "./acl.ts";
+import { ACL_STEPS, OWNER_OK_PS, PS_HELPERS, aclMarkerPath, asciiJson, asciiLine, CLM_CHECK, execFailure, POWERSHELL_FLAGS, PROGRESS_OFF, UTF8_OUT } from "./acl.ts";
 import type { Launched, SpawnSpec, Started } from "./client.ts";
 
 // The detached server on Windows, started outside the starter's job object (docs/specs/2026-10-26-sb-backend.md, Process model and lifecycle). Node's `detached: true` does not break away from
@@ -55,10 +55,11 @@ export const LAUNCH_SCRIPT = [
 	PROGRESS_OFF,
 	CLM_CHECK,
 	"$ErrorActionPreference = 'Stop'",
+	...PS_HELPERS,
 	// What the answer says is the source of truth for the starter: `created` turns true the moment WMI says it made the process, and from then on nothing in this script may end without the
 	// answer line (a failure of the check or of the marker is reported in it as `markerError`), so the starter never starts a second server for a first that exists.
 	"$created = $false; $newPid = 0; $away = $true; $started = $null; $createMs = 0; $markerError = $null",
-	`function Say($o) { $j = $o | ConvertTo-Json -Compress; ${asciiJson("$j")} }`,
+	`function Say($o) { $j = ToJson $o; ${asciiJson("$j")} }`,
 	"try {",
 	"  $sw = [Diagnostics.Stopwatch]::StartNew()",
 	"  $si = ([wmiclass]'Win32_ProcessStartup').CreateInstance()",
@@ -72,7 +73,7 @@ export const LAUNCH_SCRIPT = [
 	// account owns is refused here (rc -2): no server, and the starter fails with `acl` without falling back to a plain spawn (whose own check would refuse it as well).
 	"  if ($env:SB_ACL_DIR) {",
 	"    $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value.ToUpperInvariant()",
-	"    $sd = (Get-Acl -LiteralPath $env:SB_ACL_DIR).Sddl",
+	"    $sd = [IO.Directory]::GetAccessControl($env:SB_ACL_DIR, [Security.AccessControl.AccessControlSections]::Owner).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Owner)",
 	"    $o = ''; if ($sd -match '^O:(S-[0-9-]+|[A-Za-z]{2})') { $o = $Matches[1] }",
 	"    $c = $o.ToUpperInvariant()",
 	"    if ($c -eq 'SY') { $c = 'S-1-5-18' } elseif ($c -eq 'BA') { $c = 'S-1-5-32-544' } else { $rid = @{ LA = '-500'; LG = '-501'; DA = '-512'; DU = '-513' }[$c]; if ($rid -and $me.EndsWith($rid)) { $c = $me } }",
@@ -83,7 +84,7 @@ export const LAUNCH_SCRIPT = [
 	"    }",
 	"  }",
 	// The line the starter looks for when PowerShell ends without an answer: without it nothing was created (the script died earlier), with it a server may exist.
-	`  Write-Output '${BEFORE_CREATE}'`,
+	`  '${BEFORE_CREATE}'`,
 	"  $r = $wmi.Create($env:SB_LAUNCH_CMD, $env:SB_LAUNCH_CWD, $si)",
 	"  $created = ($r.ReturnValue -eq 0)",
 	// A job that does not allow breakaway fails the creation; the same call is made once more without the flag, in this start, and the answer says so.
@@ -100,7 +101,7 @@ export const LAUNCH_SCRIPT = [
 	"    } catch { $aclError = $_.Exception.Message }",
 	"    $m = [ordered]@{ pid = $newPid }",
 	"    if ($aclError) { $m['error'] = $aclError } else { foreach ($key in $out.Keys) { $m[$key] = $out[$key] }; $started = $out.started }",
-	"    $mj = $m | ConvertTo-Json -Compress -Depth 4",
+	"    $mj = ToJson $m",
 	`    $mj = ${asciiJson("$mj")}`,
 	// The file appears whole, or not at all: written beside its name, then moved. A failure here (a scanner holding the file, the folder gone, a full disk) is only reported: the server exists.
 	"    try {",
@@ -108,12 +109,12 @@ export const LAUNCH_SCRIPT = [
 	"      [IO.File]::Move($env:SB_ACL_MARKER + '.tmp', $env:SB_ACL_MARKER)",
 	"    } catch {",
 	"      $markerError = $_.Exception.Message",
-	"      Remove-Item -LiteralPath ($env:SB_ACL_MARKER + '.tmp') -Force -ErrorAction SilentlyContinue",
+	"      try { [IO.File]::Delete($env:SB_ACL_MARKER + '.tmp') } catch { }",
 	"    }",
 	"  }",
 	// The starter's own start time, in this same PowerShell (after the marker, so the server is not kept waiting for it): the starter would otherwise start a PowerShell of its own to read it.
 	"  $starterStarted = $null",
-	"  if ($env:SB_STARTER_PID) { try { $starterStarted = (Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$env:SB_STARTER_PID)).CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [cultureinfo]::InvariantCulture) } catch { } }",
+	"  if ($env:SB_STARTER_PID) { try { $starterStarted = StartOf ([int]$env:SB_STARTER_PID) } catch { } }",
 	"  Say ([ordered]@{ rc = [int]$r.ReturnValue; pid = $newPid; breakaway = $away; started = $started; starterStarted = $starterStarted; createMs = [int]$createMs; aclMs = [int]($sw.ElapsedMilliseconds - $createMs); markerError = $markerError })",
 	"} catch {",
 	// Before the process exists the answer says so (rc -1) and the exit code is 1: the starter falls back to the plain spawn. After it, the answer carries the pid and the starter does not.

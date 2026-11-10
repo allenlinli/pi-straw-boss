@@ -10,6 +10,7 @@ import { startGui, type Gui } from "../src/gui.ts";
 import type { Found } from "../src/net.ts";
 import { labelOf } from "../src/devices.ts";
 import { alive, createAccess, identity, PORT, type Run, runs, serveOff, serveOn, switchRemote } from "../src/remote.ts";
+import { START_OF_PS } from "../src/server/acl.ts";
 import { createStartOf, startCommand, startOf } from "../src/startof.ts";
 import { copyText } from "../src/pairing.ts";
 import { until } from "./fakes.ts";
@@ -593,7 +594,7 @@ test("S7: on win32 a start time comes from a PowerShell call that is asynchronou
 	assert.equal(calls[0]!.file, "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "by absolute path: a bare name is looked for in the current folder first");
 	assert.equal(calls[0]!.options.cwd, "C:\\Windows\\System32");
 	assert.deepEqual(calls[0]!.args.slice(0, 5), ["-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-Command"]);
-	assert.equal(calls[0]!.args[5], "$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference='Stop'; (Get-CimInstance Win32_Process -Filter 'ProcessId=4242').CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [cultureinfo]::InvariantCulture)");
+	assert.equal(calls[0]!.args[5], `$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference='Stop'; ${START_OF_PS}; StartOf 4242`);
 	assert.equal(calls[0]!.options.windowsHide, true);
 	assert.equal(calls[0]!.options.timeout, 15_000);
 	assert.deepEqual(startCommand(4242).args, calls[0]!.args);

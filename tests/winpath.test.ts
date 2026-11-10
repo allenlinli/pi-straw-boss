@@ -75,7 +75,7 @@ test("every Windows call of the repo names its program by absolute path and runs
 
 test("the ACL script runs icacls from the system folder too (PowerShell never looks in the current folder, but the script does not rely on it)", async () => {
 	const { ACL_SCRIPT } = await import("../src/server/acl.ts");
-	assert.match(ACL_SCRIPT, /\$icacls = Join-Path \(\[Environment\]::SystemDirectory\) 'icacls\.exe'/);
+	assert.match(ACL_SCRIPT, /\$icacls = \[IO\.Path\]::Combine\(\[Environment\]::SystemDirectory, 'icacls\.exe'\)/);
 	assert.ok(!/& icacls\.exe/.test(ACL_SCRIPT));
 });
 

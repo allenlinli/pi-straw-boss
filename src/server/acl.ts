@@ -6,7 +6,7 @@ import { powershellEnv, powershellPath, system32 } from "../winpath.ts";
 // The Windows ACL of the state directory (docs/specs/2026-10-26-sb-backend.md, The control socket). A named pipe is not protected by its name or by a file mode, so the
 // secret that opens a connection lives in server.json, and server.json is only as private as the folder it is in. The folder `straw-boss/` (never the agent directory
 // above it) gets a protected DACL with the owner and SYSTEM only. Accounts are named by SID, never by a localized name, and the check reads the SDDL
-// (`(Get-Acl).Sddl`), never icacls' localized text. Reading the owner's SID, this process's start time, setting the ACL, and reading every SDDL back run in one PowerShell start, which
+// (`GetSecurityDescriptorSddlForm`, what `(Get-Acl).Sddl` reads), never icacls' localized text. Reading the owner's SID, this process's start time, setting the ACL, and reading every SDDL back run in one PowerShell start, which
 // answers one JSON line (a PowerShell start costs 2 to 3 s on a slow machine, and the server asks for nothing else of it).
 
 export const SYSTEM_SID = "S-1-5-18";
@@ -37,6 +37,27 @@ export const CLM_TEXT = "PowerShell runs in Constrained Language Mode (likely a 
 /** The first line of every script that prints an answer: the console's output encoding, which may fail where no console is attached. */
 export const UTF8_OUT = "try { [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false) } catch { }";
 
+/**
+ * No script of the package calls a cmdlet of a module (Get-CimInstance, Get-Acl, Test-Path, Join-Path, ConvertTo-Json, New-Object, Write-Output, Remove-Item): a fresh Windows PowerShell 5.1 builds its module
+ * analysis cache for the first one, 41 to 48 s on a cold windows-11-arm runner (todo #132), which is the whole of the server's 60 s to answer its hello. The helpers are .NET calls and language: a WMI query through
+ * `[wmisearcher]` (0.2 s), a path test through `[IO.File]` and `[IO.Directory]`, and a JSON writer of the shapes the scripts answer with. The cmdlets of PowerShell's core (`ForEach-Object`, `Where-Object`,
+ * `Out-Null`) are in the session already and stay.
+ */
+export const START_FORMAT = "yyyy-MM-ddTHH:mm:ss.fffZ";
+/** `StartOf <pid>`: the process's `Win32_Process.CreationDate` as UTC ISO text (the same text `Get-CimInstance` gave), or a thrown error when there is no such process. */
+export const START_OF_PS = `function StartOf($p) { $s = [wmisearcher]('SELECT CreationDate FROM Win32_Process WHERE ProcessId=' + [int]$p); try { foreach ($o in $s.Get()) { return [System.Management.ManagementDateTimeConverter]::ToDateTime([string]$o['CreationDate']).ToUniversalTime().ToString('${START_FORMAT}', [cultureinfo]::InvariantCulture) } } finally { $s.Dispose() }; throw 'no such process' }`;
+/** `Present $path`: whether a file or a folder is there (`Test-Path -LiteralPath`). */
+export const PRESENT_PS = "function Present($p) { return ([IO.File]::Exists($p) -or [IO.Directory]::Exists($p)) }";
+/** `ToJson $value`: `ConvertTo-Json -Compress` for the values the scripts answer with (null, string, bool, integer, dictionary, array); the JSON of a string escapes `\\`, `"` and the control characters. */
+export const TO_JSON_PS = [
+	"function JsonStr($s) { $t = ([string]$s).Replace('\\', '\\\\').Replace('\"', '\\\"'); $t = [regex]::Replace($t, '[\\x00-\\x1F]', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) ('\\u{0:x4}' -f [int][char]$m.Value) }); return '\"' + $t + '\"' }",
+	"function ToJson($v) { if ($null -eq $v) { return 'null' }; if ($v -is [string]) { return JsonStr $v }; if ($v -is [bool]) { if ($v) { return 'true' } else { return 'false' } }; if ($v -is [int] -or $v -is [long] -or $v -is [uint32]) { return [string]$v }",
+	"  if ($v -is [System.Collections.IDictionary]) { $p = [System.Collections.Generic.List[string]]::new(); foreach ($k in $v.Keys) { $p.Add((JsonStr $k) + ':' + (ToJson ($v[$k]))) }; return '{' + ($p -join ',') + '}' }",
+	"  if ($v -is [System.Collections.IEnumerable]) { $p = [System.Collections.Generic.List[string]]::new(); foreach ($x in $v) { $p.Add((ToJson $x)) }; return '[' + ($p -join ',') + ']' }; return JsonStr $v }",
+].join("\n");
+/** The helpers, defined once at the top of a script. */
+export const PS_HELPERS = [START_OF_PS, PRESENT_PS, TO_JSON_PS];
+
 /** BUILTIN\Administrators: the default owner of what an elevated token creates. */
 export const ADMINS_SID = "S-1-5-32-544";
 /**
@@ -52,9 +73,9 @@ export const ACL_STEPS = [
 	"$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
 	// The start time of the server (Win32_Process.CreationDate, as startof.ts reads every process's), so its own PowerShell start is not made; a failure leaves it null.
 	"$started = $null",
-	"try { $started = (Get-CimInstance Win32_Process -Filter \"ProcessId=$($env:SB_ACL_PID -as [int])\").CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [cultureinfo]::InvariantCulture) } catch { }",
+	"try { $started = StartOf ($env:SB_ACL_PID -as [int]) } catch { }",
 	// `${sid}:` and not `$sid:`: PowerShell reads the latter as a variable in a scope named sid.
-	"$icacls = Join-Path ([Environment]::SystemDirectory) 'icacls.exe'",
+	"$icacls = [IO.Path]::Combine([Environment]::SystemDirectory, 'icacls.exe')",
 	// ONE owner rule everywhere (R11-F004): the user, BUILTIN\Administrators and SYSTEM (`OWNER_OK_SIDS`, as `ownerProblems`, the launch script's check before the create, and the native owner read in `winprep.ts`). Owners are read as SIDs through .NET.
 	`$okOwners = @(${OWNER_OK_PS})`,
 	"function OwnerOf($p) { $s = [Security.AccessControl.AccessControlSections]::Owner; if ([IO.Directory]::Exists($p)) { $a = [IO.Directory]::GetAccessControl($p, $s) } else { $a = [IO.File]::GetAccessControl($p, $s) }; return $a.GetOwner([Security.Principal.SecurityIdentifier]).Value }",
@@ -67,8 +88,10 @@ export const ACL_STEPS = [
 	"if ($LASTEXITCODE -ne 0) { throw \"icacls failed with exit code $LASTEXITCODE\" }",
 	// `/grant:r` replaces only the grants of the SIDs it names: an explicit ACE of any other account (an elevated token's folder carries BUILTIN\Administrators) survives `/inheritance:r`. Every other explicit
 	// allow ACE of the folder is removed here by SID, before the reset below hands the folder's ACL to what is under it; the read-back still refuses a folder that holds anything but the owner and SYSTEM.
-	"$strays = @([IO.Directory]::GetAccessControl($dir, [Security.AccessControl.AccessControlSections]::Access).GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier]) | Where-Object { $_.AccessControlType -eq 'Allow' } | ForEach-Object { $_.IdentityReference.Value } | Where-Object { $_ -ne $sid -and $_ -ne 'S-1-5-18' } | Sort-Object -Unique)",
-	"if ($strays.Count -gt 0) { & $icacls $dir /remove:g @($strays | ForEach-Object { '*' + $_ }) | Out-Null; if ($LASTEXITCODE -ne 0) { throw \"icacls failed with exit code $LASTEXITCODE\" } }",
+	"$strays = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)",
+	"foreach ($rule in [IO.Directory]::GetAccessControl($dir, [Security.AccessControl.AccessControlSections]::Access).GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier])) { if ($rule.AccessControlType -eq 'Allow') { $who = $rule.IdentityReference.Value; if ($who -ne $sid -and $who -ne 'S-1-5-18') { [void]$strays.Add($who) } } }",
+	"$grants = @(foreach ($stray in $strays) { '*' + $stray })",
+	"if ($strays.Count -gt 0) { & $icacls $dir /remove:g @grants | Out-Null; if ($LASTEXITCODE -ne 0) { throw \"icacls failed with exit code $LASTEXITCODE\" } }",
 	// ONE walk reads everything about an entry once (R13, the perf of 3,000 files in link\inbox): its attributes, whether it is a junction or symbolic link (`LinkType`; other reparse points, OneDrive and other
 	// cloud placeholders, dedup, are ordinary files and folders), and its OWNER as a SID. A link or junction, or an owner that is not the user, BUILTIN\Administrators or SYSTEM, is thrown BEFORE any call
 	// below changes anything (R11-F001; VM pass 5b): `/setowner /C` would take an entry another account made and granted the user WRITE_OWNER on, and a reset would rewrite the DACL of an entry it still owns.
@@ -79,7 +102,7 @@ export const ACL_STEPS = [
 	"$own = [Security.AccessControl.AccessControlSections]::Owner",
 	"$all = [Security.AccessControl.AccessControlSections]'Owner,Group,Access'",
 	"function Sddl($p) { if ([IO.Directory]::Exists($p)) { $a = [IO.Directory]::GetAccessControl($p, $all) } else { $a = [IO.File]::GetAccessControl($p, $all) }; return $a.GetSecurityDescriptorSddlForm($all) }",
-	"function Walk($root) { $f = New-Object System.Collections.Generic.List[string]; $d = New-Object System.Collections.Generic.List[string]; $todo = New-Object System.Collections.Generic.Stack[string]; $todo.Push($root); while ($todo.Count -gt 0) { $here = $todo.Pop(); try { $names = [IO.Directory]::GetFileSystemEntries($here) } catch { if (Test-Path -LiteralPath $here) { throw }; continue }; foreach ($e in $names) { try { $a = [IO.File]::GetAttributes($e) } catch { continue }; $isDir = ($a -band [IO.FileAttributes]::Directory) -ne 0; if (($a -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $kind = $null; try { $kind = (Get-Item -LiteralPath $e -Force -ErrorAction Stop).LinkType } catch { throw ('sb-reparse-point ' + $e) }; if ($kind -eq 'Junction' -or $kind -eq 'SymbolicLink') { throw ('sb-reparse-point ' + $e) } }; try { if ($isDir) { $sec = [IO.Directory]::GetAccessControl($e, $own) } else { $sec = [IO.File]::GetAccessControl($e, $own) }; $who = $sec.GetOwner([Security.Principal.SecurityIdentifier]).Value } catch { if (Test-Path -LiteralPath $e) { throw }; continue }; if ($who -ne $sid -and $okOwners -notcontains $who) { throw ('the ' + $e + ' belongs to another account (' + $who + '), not to ' + $sid + ' (nothing was changed)') }; if ($isDir) { $d.Add($e); $todo.Push($e) } else { $f.Add($e) } } }; return @{ files = $f; folders = $d } }",
+	"function Walk($root) { $f = [System.Collections.Generic.List[string]]::new(); $d = [System.Collections.Generic.List[string]]::new(); $todo = [System.Collections.Generic.Stack[string]]::new(); $todo.Push($root); while ($todo.Count -gt 0) { $here = $todo.Pop(); try { $names = [IO.Directory]::GetFileSystemEntries($here) } catch { if (Present $here) { throw }; continue }; foreach ($e in $names) { try { $a = [IO.File]::GetAttributes($e) } catch { continue }; $isDir = ($a -band [IO.FileAttributes]::Directory) -ne 0; if (($a -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $kind = $null; try { if ($isDir) { $info = [IO.DirectoryInfo]::new($e) } else { $info = [IO.FileInfo]::new($e) }; if ($info.PSObject.Properties['LinkType']) { $kind = $info.LinkType } else { $kind = (Get-Item -LiteralPath $e -Force -ErrorAction Stop).LinkType } } catch { throw ('sb-reparse-point ' + $e) }; if ($kind -eq 'Junction' -or $kind -eq 'SymbolicLink') { throw ('sb-reparse-point ' + $e) } }; try { if ($isDir) { $sec = [IO.Directory]::GetAccessControl($e, $own) } else { $sec = [IO.File]::GetAccessControl($e, $own) }; $who = $sec.GetOwner([Security.Principal.SecurityIdentifier]).Value } catch { if (Present $e) { throw }; continue }; if ($who -ne $sid -and $okOwners -notcontains $who) { throw ('the ' + $e + ' belongs to another account (' + $who + '), not to ' + $sid + ' (nothing was changed)') }; if ($isDir) { $d.Add($e); $todo.Push($e) } else { $f.Add($e) } } }; return @{ files = $f; folders = $d } }",
 	"$tree = Walk $dir",
 	// Everything below the folder is then made the user's, in ONE call (`/C` goes on past an item it may not change; the read-back below is the check): /reset and /inheritance replace DACLs and
 	// never owners, so what an elevated run made (BUILTIN\Administrators) or SYSTEM made would keep that implicit WRITE_DAC; as the owner the user can then reset it.
@@ -89,16 +112,16 @@ export const ACL_STEPS = [
 	// place), and the exit code is not the check, since an empty folder has nothing to match: the read-back below is. A call per item would start a process for each of them (link/inbox holds up to 500).
 	"& $icacls \"$dir\\*\" /reset /T /C /L /Q | Out-Null",
 	"$files = @()",
-	"foreach ($name in 'server.json', 'server.lock', 'server.log', 'gui.json', 'hub.json', 'paired.json', 'gui-secrets.json', 'lan-ca.json', 'lan.json') { $p = Join-Path $dir $name; if (Test-Path -LiteralPath $p) { $files += $p } }",
-	"$link = Join-Path $dir 'link'",
+	"foreach ($name in 'server.json', 'server.lock', 'server.log', 'gui.json', 'hub.json', 'paired.json', 'gui-secrets.json', 'lan-ca.json', 'lan.json') { $p = [IO.Path]::Combine($dir, $name); if (Present $p) { $files += $p } }",
+	"$link = [IO.Path]::Combine($dir, 'link')",
 	"$files += @($tree.files | Where-Object { $_.StartsWith($link + '\\') })",
 	// A secondary slot's folder holds that slot's secret in its server.json.
-	"$servers = Join-Path $dir 'servers'",
+	"$servers = [IO.Path]::Combine($dir, 'servers')",
 	"$files += @($tree.files | Where-Object { $_.StartsWith($servers + '\\') -and [IO.Path]::GetFileName($_) -eq 'server.json' })",
-	"$read = @(foreach ($p in $files) { try { [ordered]@{ path = $p; sddl = (Sddl $p) } } catch { if (Test-Path -LiteralPath $p) { throw } } })",
+	"$read = @(foreach ($p in $files) { try { [ordered]@{ path = $p; sddl = (Sddl $p) } } catch { if (Present $p) { throw } } })",
 	// Every folder below, with its SDDL read back: each must be the user's with allow ACEs for the user and SYSTEM only (`aclProblems`).
-	"$readFolders = @(foreach ($p in $tree.folders) { try { [ordered]@{ path = $p; sddl = (Sddl $p) } } catch { if (Test-Path -LiteralPath $p) { throw } } })",
-	"$out = [ordered]@{ sid = $sid; started = $started; dir = (Get-Acl -LiteralPath $dir).Sddl; files = $read; folders = $readFolders }",
+	"$readFolders = @(foreach ($p in $tree.folders) { try { [ordered]@{ path = $p; sddl = (Sddl $p) } } catch { if (Present $p) { throw } } })",
+	"$out = [ordered]@{ sid = $sid; started = $started; dir = (Sddl $dir); files = $read; folders = $readFolders }",
 ];
 /**
  * The PowerShell script: the folder and the server's pid come in the environment (SB_ACL_DIR, SB_ACL_PID), so no path is ever quoted into the script.
@@ -108,7 +131,7 @@ export const ACL_STEPS = [
  * reset to inherit from the folder by one `icacls <dir>\* /reset /T /C /Q`, whatever the number of items (a call per item took a process each, link/inbox alone holds up to 500); a file
  * created later inherits the owner and SYSTEM from the folder.
  */
-export const ACL_SCRIPT = [UTF8_OUT, PROGRESS_OFF, CLM_CHECK, "$ErrorActionPreference = 'Stop'", ...ACL_STEPS, "$json = $out | ConvertTo-Json -Compress -Depth 4", asciiJson("$json")].join("\n");
+export const ACL_SCRIPT = [UTF8_OUT, PROGRESS_OFF, CLM_CHECK, "$ErrorActionPreference = 'Stop'", ...PS_HELPERS, ...ACL_STEPS, "$json = ToJson $out", asciiJson("$json")].join("\n");
 
 /** The PowerShell call: `-EncodedCommand` (UTF-16LE base64) so no quoting of the script can go wrong; `windowsHide` keeps its console off the desktop. */
 export function aclCommand(dir: string, env: NodeJS.ProcessEnv = process.env, timeout = ACL_MS, pid: number = process.pid) {
@@ -233,7 +256,7 @@ export function parseAclOutput(stdout: string): AclResult {
 	return { sid, dir, files: listOf(files), folders: listOf(folders), ...(typeof started === "string" && START_TEXT.test(started) ? { started } : {}) };
 }
 /**
- * The folder's owner must be the user: the exact `O:` of `(Get-Acl).Sddl`, which PowerShell's read-back has and `icacls /save` has not. A folder another account owns keeps an owner's implicit
+ * The folder's owner must be the user: the exact `O:` of the SDDL (`(Get-Acl).Sddl`'s text), which PowerShell's read-back has and `icacls /save` has not. A folder another account owns keeps an owner's implicit
  * WRITE_DAC whatever its DACL says now, so it is refused before any secret is written ("belongs to another account"; the native owner read can only say "not known" for a long account name).
  */
 export function ownerProblems(sddl: string, owner: string, path = "the folder", kind = "folder"): string[] {

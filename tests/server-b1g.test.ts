@@ -237,12 +237,12 @@ test("R3-F002: when the protect fails, the open folder is re-read no more than e
 	assert.equal(ps, 3, "read again after the window");
 });
 
-test("Windows item 2: a path that is gone is 'not there' by the walk's pattern: catch { if (Test-Path -LiteralPath $p) { throw } }", async () => {
+test("Windows item 2: a path that is gone is 'not there' by the walk's pattern: catch { if (the path is still there) { throw } }", async () => {
 	forgetSid();
 	mkdirSync(world.stateDir, { recursive: true });
 	const f = fake({ owners: [OWNER] });
 	await ownerGate(world.stateDir, f.run);
-	assert.match(f.calls.scripts[0]!, /catch \{ if \(Test-Path -LiteralPath \$p\) \{ throw \} \}/);
+	assert.match(f.calls.scripts[0]!, /catch \{ if \(\[IO\.File\]::Exists\(\$p\) -or \[IO\.Directory\]::Exists\(\$p\)\) \{ throw \} \}/);
 	assert.ok(!/FileNotFoundException/.test(f.calls.scripts[0]!));
 });
 

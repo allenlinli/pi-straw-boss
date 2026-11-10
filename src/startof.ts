@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { execFileSyncExe } from "./exe.mjs";
-import { POWERSHELL_FLAGS, PROGRESS_OFF } from "./server/acl.ts";
+import { POWERSHELL_FLAGS, PROGRESS_OFF, START_OF_PS } from "./server/acl.ts";
 import { powershellEnv, powershellPath, system32 } from "./winpath.ts";
 
 // A process's start time, which tells a PID another process now holds from the process that wrote a record (remote.ts `runs`, the GUI and link records).
@@ -10,11 +10,12 @@ export const READ_MS = 15_000;
 const OTHERS_MS = 10 * 60_000, FIRST_FAIL_MS = 5000, MAX_FAIL_MS = 60_000, OWN_RETRY_MS = [1000, 2000, 4000, 8000, 15_000];
 /**
  * The command that tells a Windows process's start time as stable text (UTC, ISO 8601, milliseconds); `windowsHide` keeps its console off the desktop.
- * `Win32_Process.CreationDate` answers for a service or an elevated process, whose `Get-Process` StartTime needs elevation.
+ * `Win32_Process.CreationDate` answers for a service or an elevated process, whose `Get-Process` StartTime needs elevation. It is read through `[wmisearcher]` (`StartOf`), not `Get-CimInstance`: the first
+ * module cmdlet of a fresh PowerShell costs 41 to 48 s on a cold runner (todo #132).
  */
 export const startCommand = (pid: number, timeout = READ_MS, env: NodeJS.ProcessEnv = process.env) => ({
 	file: powershellPath(env),
-	args: [...POWERSHELL_FLAGS, "-Command", `${PROGRESS_OFF}; $ErrorActionPreference='Stop'; (Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [cultureinfo]::InvariantCulture)`],
+	args: [...POWERSHELL_FLAGS, "-Command", `${PROGRESS_OFF}; $ErrorActionPreference='Stop'; ${START_OF_PS}; StartOf ${pid}`],
 	// By absolute path and from System32: a bare name is looked for in the current folder first, which is a project (nodejs/node#46264).
 	options: { encoding: "utf8" as const, timeout, windowsHide: true, cwd: system32(env), env: powershellEnv(env) },
 });

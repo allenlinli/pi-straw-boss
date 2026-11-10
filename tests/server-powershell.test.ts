@@ -96,7 +96,7 @@ test("F2: off Windows startedOrWait is `ps` at once, as before", async () => {
 
 test("F2: the launch script reads the starter's start time in its one PowerShell start (SB_STARTER_PID, after the marker), the answer carries it, and the server never sees the variable", () => {
 	const lines = LAUNCH_SCRIPT.split("\n");
-	const marker = lines.findIndex((l) => /Move\(\$env:SB_ACL_MARKER/.test(l)), starter = lines.findIndex((l) => /\$env:SB_STARTER_PID/.test(l) && /Get-CimInstance Win32_Process/.test(l));
+	const marker = lines.findIndex((l) => /Move\(\$env:SB_ACL_MARKER/.test(l)), starter = lines.findIndex((l) => /\$env:SB_STARTER_PID/.test(l) && /StartOf \(/.test(l));
 	assert.ok(marker > 0 && starter > marker, "after the marker, so the server is not kept waiting for it");
 	assert.match(LAUNCH_SCRIPT, /\$k -ne 'SB_STARTER_PID'/);
 	assert.match(LAUNCH_SCRIPT, /starterStarted = \$starterStarted/);

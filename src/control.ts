@@ -170,8 +170,8 @@ export function checkText(text: unknown): string | Reply {
 const OVERLAY_OPEN = "A /boss gui lan screen is open in this session; only Escape can be sent to it from a paired device.";
 /** Boss commands that manage pairing, remote access, Wi-Fi, or the server: a paired device's composer and a new session's first message never run them, nor `gui view <mode>` (the local page and the terminal do). A slip guard, not a boundary: the key pad's terminal keys are not filtered. */
 const BOSS_LOCAL = /^\s*\/boss\s+(gui\s+(stop|rotate|remote|lan|devices|unpair|view\s+\S+)|server|lan|answer|link\s+decide)(?=\s|$)/;
-/** The Straw Link subcommands that change who may command this computer or answer for it (bosslink.ts), and the ones that show a credential or a teammate's call: the same slip guard as `link decide`. `link` and `link status` stay readable. */
-const BOSS_LINK_LOCAL = /^\s*\/boss\s+link\s+(on|confirms?|asks|answer|invite|join|create|leave|operate)(?=\s|$)/;
+/** The Straw Link subcommands that change who may command this computer or answer for it, a team's roster or its key (bosslink.ts), and the ones that show a credential or a teammate's call: the same slip guard as `link decide`. `link` and `link status` stay readable. */
+const BOSS_LINK_LOCAL = /^\s*\/boss\s+link\s+(on|confirms?|asks|answer|invite|join|create|leave|operate|trust|role|remove|rotate)(?=\s|$)/;
 const BOSS_OPEN = /^\s*\/boss\s+open\s+([\s\S]*)$/, BOSS_SEND = /^\s*\/boss\s+send(?=\s|$)([\s\S]*)$/;
 /** A text a paired device may not send: a local-only /boss command, or a `/boss open` whose first message, or a `/boss send` whose text (at any depth), is one, since the new pane or the other session would run it from this computer. */
 export const localOnlyText = (text: string): boolean => {

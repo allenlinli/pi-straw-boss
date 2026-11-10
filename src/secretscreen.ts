@@ -41,14 +41,16 @@ export async function readSecret(ui: Ui, screen: Screen & { hint: string }): Pro
 	});
 }
 
-/** The boss reads `lines` (a credential) on a screen of its own until Enter or Escape; nothing of it stays in the chat or the terminal's scrollback. */
-export async function showScreen(ui: Ui, screen: Screen & { lines: string[] }): Promise<void> {
-	if (typeof ui.custom !== "function") return;
-	await ui.custom<void>((_tui, _theme, _keys, done) => ({
+/** The boss reads `lines` (a credential) on a screen of its own until Enter or Escape (false when the ui drew nothing: pi's no-op `custom` in RPC mode); nothing of it stays in the chat or the terminal's scrollback. */
+export async function showScreen(ui: Ui, screen: Screen & { lines: string[] }): Promise<boolean> {
+	if (typeof ui.custom !== "function") return false;
+	let drawn = false;
+	await ui.custom<void>((_tui, _theme, _keys, done) => ((drawn = true), {
 		render: (width) => draw(screen, width, screen.lines.flatMap((line) => rows(line, Math.max(1, width)))),
 		invalidate() {},
 		handleInput(data: string) {
 			if (matchesKey(data, "escape") || matchesKey(data, "enter")) done();
 		},
 	}));
+	return drawn;
 }

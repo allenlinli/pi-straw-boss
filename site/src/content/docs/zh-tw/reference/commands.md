@@ -112,8 +112,13 @@ GUI 的記憶面板做的和 `/boss memory` 一樣。見[塔台記憶](/pi-straw
 | `/boss link decide <id> approve\|refuse` | 核准或拒絕加入請求。核准有人看管的裝置時，會請你選出新電腦顯示的安全字。 |
 | `/boss link create <relay> <dir> [--share status\|presence] [--label x]` | 為專案資料夾建立團隊。relay 的 token 會在遮蔽的畫面上詢問。 |
 | `/boss link join <invite \| @file> [--project <dir>] [--share …] [--label x]` | 加入團隊；印出給邀請者的四個安全字。 |
+| `/boss link invite <team> [unattended <device id>]` | 確認後建立邀請，就像頁面的「邀請」與「邀請無人值守裝置」。邀請文字畫在自己的畫面上，絕不進入聊天。 |
 | `/boss link invite show\|cancel <hash>`、`link join cancel` | 在自己的畫面上顯示一個開著的邀請、取消它，或取消進行中的加入。 |
 | `/boss link leave <team> [--force]` | 確認後離開團隊。 |
+| `/boss link trust <device> reply\|forward\|dispatch` | 確認後設定隊友裝置送來的訊息能做什麼；確認會說明各等級讓它能做什麼。 |
+| `/boss link role <team> <device> admin\|member` | 確認後讓團隊的某部裝置成為管理員或成員（管理員的操作）。 |
+| `/boss link remove <team> <device>` | 把裝置移出團隊（管理員的操作）。確認會說明該裝置不能再讀或送，團隊金鑰也會為留下來的裝置更換。 |
+| `/boss link rotate <team>` | 確認後為每部裝置更換團隊的金鑰（管理員的操作）。 |
 | `/boss link confirms`、`link confirm <id> allow\|deny` | 隊友的塔台正在等的 confirm，以及對它們的回答。 |
 | `/boss link asks`、`link answer <id> <number \| text>` | 無人值守裝置轉送來的問題，以及對它們的回答。 |
 | `/boss link units [box]`、`link stop <box> <main \| handle start> [--interrupt] [reason]` | 無人值守的盒子回報的單位，以及請盒子停掉一位主智慧體。 |

@@ -168,7 +168,7 @@ const POWERSHELL = "WindowsPowerShell\\v1.0\\powershell.exe";
  * could imitate. The Constrained Language check comes first, so a machine that locks PowerShell down says so (the word is told as a sentence by `execFailure`). Read by `ownerGate` before the
  * first file is created in an existing folder, and by `secure` where a wrong DACL is about to be changed and the folder was not gated yet.
  */
-const ownerCall = (paths: string[]) => {
+export const ownerCall = (paths: string[]) => {
 	// One line per path: `<index>:<SID>`, or `<index>:-` for a path that is not there. A folder is read with `Directory`, a file with `File`.
 	const script = [PROGRESS_OFF, "$ErrorActionPreference = 'Stop'", CLM_CHECK, "$i = 0", "foreach ($p in ($env:SB_OWNER_DIR -split '\\|')) {",
 		// A path that went away between the existence check and the read (however .NET wraps the error) is "not there"; an error on a path that is still there stops the script and is a failed read.

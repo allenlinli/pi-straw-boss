@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { execFileExe } from "../exe.mjs";
-import { POWERSHELL_FLAGS, PROGRESS_OFF, START_FORMAT } from "./acl.ts";
+import { POWERSHELL_FLAGS, PROGRESS_OFF, START_FORMAT, dmtfUtcPs } from "./acl.ts";
 import { powershellEnv, powershellPath, system32 } from "../winpath.ts";
 
 // Which process is pi. `herdr pane process-info` lists what runs in a pane's foreground, and when pi is started through a wrapper (`cmd.exe /c pi.cmd` on Windows, a `sh -c` or Volta shim elsewhere)
@@ -83,7 +83,7 @@ const ISO_START = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
 /** The Windows command: every process as `pid TAB ppid TAB UTC start TAB name TAB 1|0 TAB 1|0` (the first flag: its command line holds `--sb-run <id>`; the second: it holds the tower prompt's ` prompt --workspace `). One PowerShell start. */
 export const cimCommand = (runId: string, env: NodeJS.ProcessEnv = process.env) => ({
 	file: powershellPath(env),
-	args: [...POWERSHELL_FLAGS, "-Command", `${PROGRESS_OFF}; $ErrorActionPreference='Stop'; $id='${runId}'; $inv=[cultureinfo]::InvariantCulture; $rows = foreach ($o in ([wmisearcher]'SELECT ProcessId,ParentProcessId,CreationDate,Name,CommandLine FROM Win32_Process').Get()) { $d=''; $cd=[string]$o['CreationDate']; if ($cd) { $d=[System.Management.ManagementDateTimeConverter]::ToDateTime($cd).ToUniversalTime().ToString('${START_FORMAT}',$inv) }; $cl=[string]$o['CommandLine']; $c='0'; if ($cl.Contains('--sb-run ' + $id)) { $c='1' }; $q='0'; if ($cl.Contains('${PROMPT_WORDS}')) { $q='1' }; (@($o['ProcessId'],$o['ParentProcessId'],$d,$o['Name'],$c,$q) -join [char]9) }; $rows`],
+	args: [...POWERSHELL_FLAGS, "-Command", `${PROGRESS_OFF}; $ErrorActionPreference='Stop'; $id='${runId}'; $inv=[cultureinfo]::InvariantCulture; $rows = foreach ($o in ([wmisearcher]'SELECT ProcessId,ParentProcessId,CreationDate,Name,CommandLine FROM Win32_Process').Get()) { $d=''; $cd=[string]$o['CreationDate']; if ($cd) { $d=${dmtfUtcPs('$cd')}.ToString('${START_FORMAT}',$inv) }; $cl=[string]$o['CommandLine']; $c='0'; if ($cl.Contains('--sb-run ' + $id)) { $c='1' }; $q='0'; if ($cl.Contains('${PROMPT_WORDS}')) { $q='1' }; (@($o['ProcessId'],$o['ParentProcessId'],$d,$o['Name'],$c,$q) -join [char]9) }; $rows`],
 	options: { encoding: "utf8" as const, timeout: READ_MS, windowsHide: true, cwd: system32(env), env: powershellEnv(env), maxBuffer: 16 * 1024 * 1024 },
 });
 export function parseCim(text: string): Proc[] {

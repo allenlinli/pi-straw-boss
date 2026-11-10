@@ -38,14 +38,16 @@ export const CLM_TEXT = "PowerShell runs in Constrained Language Mode (likely a 
 export const UTF8_OUT = "try { [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false) } catch { }";
 
 /**
- * No script of the package calls a cmdlet of a module (Get-CimInstance, Get-Acl, Test-Path, Join-Path, ConvertTo-Json, New-Object, Write-Output, Remove-Item): a fresh Windows PowerShell 5.1 builds its module
+ * No script on the server's start path (launch, ACL, owner read, start time, process table) calls a cmdlet of a module (Get-CimInstance, Get-Acl, Test-Path, Join-Path, ConvertTo-Json, New-Object, Write-Output, Remove-Item): a fresh Windows PowerShell 5.1 builds its module
  * analysis cache for the first one, 41 to 48 s on a cold windows-11-arm runner (todo #132), which is the whole of the server's 60 s to answer its hello. The helpers are .NET calls and language: a WMI query through
  * `[wmisearcher]` (0.2 s), a path test through `[IO.File]` and `[IO.Directory]`, and a JSON writer of the shapes the scripts answer with. The cmdlets of PowerShell's core (`ForEach-Object`, `Where-Object`,
  * `Out-Null`) are in the session already and stay.
  */
+/** The UTC instant of a CIM datetime variable (`yyyyMMddHHmmss.ffffff` and the offset in minutes, e.g. `+060`), computed from the string itself: ManagementDateTimeConverter reads the local offset of the unadjusted time, one hour off in a DST fall-back hour. */
+export const dmtfUtcPs = (v: string) => `[datetime]::ParseExact(${v}.Substring(0,21),'yyyyMMddHHmmss.ffffff',[cultureinfo]::InvariantCulture,'AssumeUniversal,AdjustToUniversal').AddMinutes(-[int]${v}.Substring(21))`;
 export const START_FORMAT = "yyyy-MM-ddTHH:mm:ss.fffZ";
 /** `StartOf <pid>`: the process's `Win32_Process.CreationDate` as UTC ISO text (the same text `Get-CimInstance` gave), or a thrown error when there is no such process. */
-export const START_OF_PS = `function StartOf($p) { $s = [wmisearcher]('SELECT CreationDate FROM Win32_Process WHERE ProcessId=' + [int]$p); try { foreach ($o in $s.Get()) { return [System.Management.ManagementDateTimeConverter]::ToDateTime([string]$o['CreationDate']).ToUniversalTime().ToString('${START_FORMAT}', [cultureinfo]::InvariantCulture) } } finally { $s.Dispose() }; throw 'no such process' }`;
+export const START_OF_PS = `function StartOf($p) { $s = [wmisearcher]('SELECT CreationDate FROM Win32_Process WHERE ProcessId=' + [int]$p); try { foreach ($o in $s.Get()) { $c = [string]$o['CreationDate']; return ${dmtfUtcPs('$c')}.ToString('${START_FORMAT}', [cultureinfo]::InvariantCulture) } } finally { $s.Dispose() }; throw 'no such process' }`;
 /** `Present $path`: whether a file or a folder is there (`Test-Path -LiteralPath`). */
 export const PRESENT_PS = "function Present($p) { return ([IO.File]::Exists($p) -or [IO.Directory]::Exists($p)) }";
 /** `ToJson $value`: `ConvertTo-Json -Compress` for the values the scripts answer with (null, string, bool, integer, dictionary, array); the JSON of a string escapes `\\`, `"` and the control characters. */

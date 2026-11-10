@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { aclCommand, aclMarkerPath, aclProblems, folderProblems, parseAclOutput } from "../src/server/acl.ts";
+import { TO_JSON_PS, START_FORMAT, POWERSHELL_FLAGS, aclCommand, aclMarkerPath, aclProblems, folderProblems, parseAclOutput } from "../src/server/acl.ts";
 import { launchCommand, parseLaunchOutput } from "../src/server/breakaway.ts";
 import { cimCommand, parseCim } from "../src/server/lineage.ts";
 import { startCommand } from "../src/startof.ts";
@@ -131,4 +131,41 @@ test("#132: the launch script makes the process through WMI, leaves the ACL chec
 	assert.match(marker.sid ?? "", /^S-1-/);
 	assert.equal(marker.started, answer.started);
 	assert.match(marker.dir ?? "", /^O:/);
+});
+
+test("#132: the server's script reads back real files and folders: nested paths with backslashes and a non-ASCII name come out of the JSON writer whole", { skip: !win }, () => {
+	forgetSid();
+	const dir = seeded("nested");
+	const inbox = join(dir, "link", "inbox");
+	mkdirSync(inbox, { recursive: true });
+	mkdirSync(join(dir, "servers", "ab12cd34ef56ab78"), { recursive: true });
+	mkdirSync(join(dir, "link", "caf\u00e9 \u65e5\u672c \u{1F600}"));
+	writeFileSync(join(dir, "server.json"), "{}");
+	writeFileSync(join(inbox, "x.json"), "{}");
+	writeFileSync(join(dir, "link", "caf\u00e9 \u65e5\u672c \u{1F600}", "n o d d.json"), "{}");
+	const { file, args, options } = aclCommand(dir, process.env);
+	const result = parseAclOutput(execFileSync(file, args, options));
+	assert.deepEqual(aclProblems(result), []);
+	const files = result.files.map((f) => f.path).sort();
+	assert.ok(files.includes(join(dir, "server.json")), files.join("\n"));
+	assert.ok(files.includes(join(inbox, "x.json")), files.join("\n"));
+	assert.ok(files.includes(join(dir, "link", "caf\u00e9 \u65e5\u672c \u{1F600}", "n o d d.json")), files.join("\n"));
+	const folders = (result.folders ?? []).map((f) => f.path);
+	assert.ok(folders.includes(inbox) && folders.includes(join(dir, "link", "caf\u00e9 \u65e5\u672c \u{1F600}")), folders.join("\n"));
+	assert.ok(result.files.every((f) => /^D:|^O:/.test(f.sddl)));
+});
+
+test("#132: ToJson on a real Windows PowerShell 5.1 writes what JSON.parse reads back (quotes, backslashes, control characters, non-BMP, null, empty and one-item arrays, nested ordered dictionaries)", { skip: !win }, () => {
+	const script = `$ErrorActionPreference='Stop'; ${TO_JSON_PS}\n$j = ToJson ([ordered]@{ s = "a\`"b\\c\`n\`t$([char]::ConvertFromUtf32(0x1F600))"; n = $null; e = @(); one = @(1); t = $true; f = $false; big = [long]5000000000; nest = [ordered]@{ list = @([ordered]@{ path = 'C:\\x\\y' }, [ordered]@{ path = 'z' }) } }); [regex]::Replace($j, '[^\\x00-\\x7F]', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) ('\\u{0:x4}' -f [int][char]$m.Value) })`;
+	const { file, options } = aclCommand(base(), process.env);
+	const out = execFileSync(file, [...POWERSHELL_FLAGS, "-Command", script], { ...options, encoding: "utf8" });
+	assert.deepEqual(JSON.parse(out), { s: 'a"b\\c\n\t\u{1F600}', n: null, e: [], one: [1], t: true, f: false, big: 5000000000, nest: { list: [{ path: "C:\\x\\y" }, { path: "z" }] } });
+});
+
+test("#132: the start time is the text Get-CimInstance gives for the same pid, and within the window of the clock", { skip: !win }, () => {
+	const own = startCommand(process.pid);
+	const ours = execFileSync(own.file, own.args, own.options).trim();
+	const cim = execFileSync(own.file, [...POWERSHELL_FLAGS, "-Command", `(Get-CimInstance Win32_Process -Filter 'ProcessId=${process.pid}').CreationDate.ToUniversalTime().ToString('${START_FORMAT}', [cultureinfo]::InvariantCulture)`], { ...own.options, encoding: "utf8" }).trim();
+	assert.equal(ours, cim);
+	assert.ok(Date.parse(ours) <= Date.now());
 });

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ACL_SCRIPT, START_FORMAT, START_OF_PS, TO_JSON_PS } from "../src/server/acl.ts";
+import { ACL_SCRIPT, START_FORMAT, START_OF_PS, TO_JSON_PS, dmtfUtcPs } from "../src/server/acl.ts";
 import { LAUNCH_SCRIPT } from "../src/server/breakaway.ts";
 import { cimCommand } from "../src/server/lineage.ts";
 import { startCommand } from "../src/startof.ts";
+import { ownerCall } from "../src/server/winprep.ts";
 
 // Todo #132: a fresh Windows PowerShell 5.1 builds its module analysis cache for the first cmdlet of a module it meets (Get-CimInstance, Add-Type, New-Object, Get-Process: 41 to 48 s on a cold
 // windows-11-arm runner), and the server's hello waits 60 s for it. A script of the package that is on the start path calls none; Windows CI runs them (the `win-acl` job and the desk's wizard).
@@ -12,6 +13,7 @@ const SCRIPTS: [string, string][] = [
 	["LAUNCH_SCRIPT", LAUNCH_SCRIPT],
 	["startCommand", startCommand(4242).args.at(-1)!],
 	["cimCommand", cimCommand("abc").args.at(-1)!],
+	["ownerCall", Buffer.from(ownerCall(["C:\\x"]).args.at(-1)!, "base64").toString("utf16le")],
 ];
 /** `Verb-Noun` words of a script: a cmdlet is named so (a parameter has no capital before its hyphen; the scripts' own words, `sb-reparse-point`, are lowercase). */
 const cmdlets = (script: string) => [...new Set(script.match(/\b[A-Z][A-Za-z]+-[A-Z][A-Za-z]+\b/g) ?? [])].sort();
@@ -39,7 +41,11 @@ test("#132: the word of every module cmdlet the scripts used to call is gone (a 
 test("#132: a process's start time is one WMI query through [wmisearcher], in the text Get-CimInstance gave (UTC, ISO 8601, milliseconds)", () => {
 	assert.equal(START_FORMAT, "yyyy-MM-ddTHH:mm:ss.fffZ");
 	assert.match(START_OF_PS, /^function StartOf\(\$p\) \{ \$s = \[wmisearcher\]\('SELECT CreationDate FROM Win32_Process WHERE ProcessId=' \+ \[int\]\$p\);/);
-	assert.match(START_OF_PS, /\[System\.Management\.ManagementDateTimeConverter\]::ToDateTime\(\[string\]\$o\['CreationDate'\]\)\.ToUniversalTime\(\)\.ToString\('yyyy-MM-ddTHH:mm:ss\.fffZ', \[cultureinfo\]::InvariantCulture\)/);
+	assert.ok(START_OF_PS.includes(`$c = [string]$o['CreationDate']; return ${dmtfUtcPs("$c")}.ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [cultureinfo]::InvariantCulture)`), START_OF_PS);
+	// The UTC instant comes from the DMTF string (fields as UTC, minus the offset minutes), never from ManagementDateTimeConverter (one hour off in a DST fall-back hour).
+	assert.equal(dmtfUtcPs("$c"), "[datetime]::ParseExact($c.Substring(0,21),'yyyyMMddHHmmss.ffffff',[cultureinfo]::InvariantCulture,'AssumeUniversal,AdjustToUniversal').AddMinutes(-[int]$c.Substring(21))");
+	assert.ok(!cimCommand("abc").args.at(-1)!.includes("ManagementDateTimeConverter") && !START_OF_PS.includes("ManagementDateTimeConverter"));
+	assert.ok(cimCommand("abc").args.at(-1)!.includes(dmtfUtcPs("$cd")));
 	assert.match(START_OF_PS, /throw 'no such process' \}$/, "no such process is an error, as the null CreationDate of an empty answer was");
 	const own = startCommand(4242).args.at(-1)!;
 	assert.ok(own.endsWith(`${START_OF_PS}; StartOf 4242`), own);
@@ -60,6 +66,14 @@ test("#132: the JSON the scripts print is written by a function, with the string
 	assert.ok(ACL_SCRIPT.includes(TO_JSON_PS) && LAUNCH_SCRIPT.includes(TO_JSON_PS));
 	assert.match(TO_JSON_PS, /\.Replace\('\\', '\\\\'\)\.Replace\('"', '\\"'\)/, "a backslash (every Windows path has them) and a quote");
 	assert.match(TO_JSON_PS, /'\[\\x00-\\x1F\]'/, "a control character (an error text has a line break) becomes \\u00XX");
+	assert.ok(TO_JSON_PS.includes("('\\u{0:x4}' -f [int][char]$m.Value)"), "four hex digits: JSON's \\uXXXX");
 	for (const shape of ["'null'", "'true'", "'false'", "[System.Collections.IDictionary]", "[System.Collections.IEnumerable]"]) assert.ok(TO_JSON_PS.includes(shape), shape);
 	assert.match(LAUNCH_SCRIPT, /\$mj = ToJson \$m\n\s+\$mj = \[regex\]::Replace\(\$mj, /);
+});
+
+test("#132: the DMTF arithmetic the script spells (fields as UTC, minus the offset minutes) gives the right instant in a DST fall-back hour", () => {
+	const utc = (cd: string) => new Date(Date.UTC(+cd.slice(0, 4), +cd.slice(4, 6) - 1, +cd.slice(6, 8), +cd.slice(8, 10), +cd.slice(10, 12), +cd.slice(12, 14), +cd.slice(15, 18)) - Number(cd.slice(21)) * 60_000).toISOString();
+	assert.equal(utc("20261101013000.000000-240"), "2026-11-01T05:30:00.000Z", "the first 01:30 of US Eastern, EDT");
+	assert.equal(utc("20261101013000.000000-300"), "2026-11-01T06:30:00.000Z", "the second 01:30, EST");
+	assert.equal(utc("20261110160000.123456+480"), "2026-11-10T08:00:00.123Z");
 });

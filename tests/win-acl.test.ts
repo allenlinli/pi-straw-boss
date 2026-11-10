@@ -102,9 +102,10 @@ test("#132: the launch script makes the process through WMI, leaves the ACL chec
 	const token = "0123456789abcdef0123456789abcdef";
 	const spec = { command: process.execPath, args: ["-e", "setTimeout(() => {}, 3000)"], env: { ...process.env }, cwd: dir, options: { detached: true as const, stdio: "ignore" as const, windowsHide: true as const }, starterPid: process.pid, acl: { dir, token } };
 	const { file, args, options } = launchCommand(spec, process.env);
-	const answer = parseLaunchOutput(execFileSync(file, args, options));
-	assert.ok(answer.pid > 0);
-	assert.match(answer.starterStarted ?? "", ISO);
+	const stdout = execFileSync(file, args, options);
+	const answer = parseLaunchOutput(stdout);
+	assert.ok(answer.pid > 0, stdout);
+	assert.match(answer.starterStarted ?? "", ISO, stdout);
 	near(answer.starterStarted!);
 	assert.match(answer.started ?? "", ISO);
 	const marker = JSON.parse(readFileSync(aclMarkerPath(dir, token), "utf8")) as { pid: number; error?: string; sid?: string; started?: string; dir?: string };

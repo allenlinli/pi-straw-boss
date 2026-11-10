@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { type Duty, isCoordinatorDuty } from "./duty.ts";
+import { type Duty, isCoordinatorDuty, isWorkerDuty } from "./duty.ts";
 import { ARROW, headOf, type HerdrRun, type HerdrWorld, isHead, isSub, KIND_MARK, MARK, parentOf, type Session, TOWER_LABEL, worldOf } from "./herdr.ts";
 import { commanding, type Mark, markOf, type Row, sessionMark, subagents } from "./netdata.ts";
 
@@ -43,7 +43,7 @@ export function render({ title, mark, head, rows, gui, checking }: Snapshot, fra
 	const last = (i: number) => i < 0 || shown.slice(i + 1).find((r) => r.group === shown[i]!.group && r.depth <= shown[i]!.depth)?.depth !== shown[i]!.depth;
 	const ancestor = (i: number, depth: number) => shown.findLastIndex((r, k) => k < i && r.group === shown[i]!.group && r.depth === depth);
 	const prefix = (i: number) => (shown[i]!.group === "net" ? Array.from({ length: shown[i]!.depth }, (_, d) => (last(ancestor(i, d)) ? "   " : "│  ")).join("") + (last(i) ? "└─ " : "├─ ") : "");
-	const role = (kind?: string, duty?: Duty) => (duty ? `${paint(DUTY_TONE[duty], KIND_MARK[duty])} ` : kind && ROLE[kind] ? `${paint(...ROLE[kind]!)} ` : "");
+	const role = (kind?: string, duty?: Duty) => (duty && ((kind === "main" && isCoordinatorDuty(duty)) || (kind === "subagent" && isWorkerDuty(duty))) ? `${paint(DUTY_TONE[duty], KIND_MARK[duty])} ` : kind && ROLE[kind] ? `${paint(...ROLE[kind]!)} ` : "");
 	const cells = shown.map((r, i) => paint("border", prefix(i)) + (r.mark === "unknown" && !r.kind ? "" : `${glyph(r.mark)} `) + role(r.kind, r.duty) + r.text);
 	const [w1, w2] = [Math.max(...cells.map(visibleWidth), 0), Math.max(...shown.map((r) => r.kind?.length ?? 0))];
 	const line = (i: number) => `${pad(cells[i]!, w1)}  ${paint("muted", (shown[i]!.kind ?? "").padEnd(w2))}  ${paint("dim", shown[i]!.note ?? "")}`.trimEnd();

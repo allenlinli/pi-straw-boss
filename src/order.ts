@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { subagents } from "./netdata.ts";
 import { isCode, isName, shortCode } from "./train/spec.ts";
-import type { CoordinatorDuty } from "./duty.ts";
+import { type CoordinatorDuty, isCoordinatorDuty } from "./duty.ts";
 import { ALLY_MARK, ARROW, type HerdrRun, type HerdrTab, type HerdrWorld, isHead, isSub, KIND_MARK, MARK, type Pane, type Place, report, type Workspace, worldOf } from "./herdr.ts";
 
 // Five display tokens for the sidebar plugin and for Herdr's own Agents rows, written next to `sb_role`:
@@ -98,7 +98,7 @@ export function allyKids(towerKey: string, allies: { pane: string; label: string
 
 /** The mark of a role: none for a tower (its tab carries the glyph), a main's kind glyph (the code-fork for the integrator), the train glyph and the short code for a train (none when the code is no code). */
 const markOf = (role: "tower" | "main" | "member" | "train", who: Who): string | null =>
-	role === "tower" ? null : role === "train" ? (who.code ? `${MARK.train} ${shortCode(who.code)}` : null) : role === "main" ? (who.duty ? KIND_MARK[who.duty] : who.integrator ? MARK.integrator : MARK.main) : MARK[role];
+	role === "tower" ? null : role === "train" ? (who.code ? `${MARK.train} ${shortCode(who.code)}` : null) : role === "main" ? (isCoordinatorDuty(who.duty) ? KIND_MARK[who.duty] : who.integrator ? MARK.integrator : MARK.main) : MARK[role];
 
 /**
  * What a session publishes besides its role: its own tokens (null clears them when Herdr cannot place the session, a tower has no mark, and none

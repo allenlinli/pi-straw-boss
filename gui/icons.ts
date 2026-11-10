@@ -4,11 +4,10 @@
 
 /** The icon of each role (position): the keys of Standard's sprite a unit, a tower or a row takes. */
 export const ICON: Record<string, string> = { main: "main", member: "member", train: "train", subagent: "subagent", outpost: "outpost", outside: "outside", tower: "tower", ally: "tower", run: "tower" };
-/** The kinds that have an icon of their own, keyed by duty (src/duty.ts): `#i-<duty>` in Standard's sprite; a train's is its role's (`ICON.train`). */
-const KIND_ICONS = ["coordinator", "integrator", "standing", "worker", "scout", "planner", "reviewer", "watchdog"];
-const KINDED = ["main", "member", "subagent"];
+import { isCoordinatorDuty, isWorkerDuty } from "../src/duty.ts";
+/** A unit's kind icon is `#i-<duty>` in Standard's sprite, only on its position: coordinator kinds on a main, worker kinds on a subagent (src/duty.ts); a train's is its role's (`ICON.train`). */
 /** The icon id of a unit's kind when its role can have one and the duty is a kind. */
-export const kindIcon = (role: string, duty?: string): string | undefined => (duty !== undefined && KINDED.includes(role) && KIND_ICONS.includes(duty) ? duty : undefined);
+export const kindIcon = (role: string, duty?: string): string | undefined => (role === "main" ? isCoordinatorDuty(duty) : role === "subagent" ? isWorkerDuty(duty) : false) ? duty : undefined;
 /** The icon id of a unit: its kind's, else its position's (a unit with no known kind looks as it did, and the tower and the head keep theirs). */
 export const unitIcon = (role: string, duty?: string): string => kindIcon(role, duty) ?? ICON[role] ?? "member";
 

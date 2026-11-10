@@ -32,7 +32,7 @@ const { alertsOf, arrivals } = await import("../gui/alerts.ts");
 const { cardModel } = await import("../gui/waitcardmodel.ts");
 const { waitCard } = await import("../gui/waitcard.ts");
 const { waitLine } = await import("../gui/waits.ts");
-const { mountBack } = await import("../gui/autoback.ts");
+const { mountBack, openWait } = await import("../gui/autoback.ts");
 const { autoDemo } = await import("../gui/demo-auto.ts");
 
 const net = (auto?: Net["auto"]): Net => ({ bases: [], ...(auto ? { auto } : {}) });
@@ -239,7 +239,10 @@ test("a parked wait raises no alert, so no system notification, sound, Zen cue, 
 	assert.deepEqual(keys, ["W2"], "W1 is parked: it stays on the card and in the rows, not in the queue");
 	const before = alertsOf(towerNet([w("W1", { parked: true })]), Date.now()), after = alertsOf(towerNet([w("W1")]), Date.now());
 	assert.equal(arrivals(before, before).length, 0, "nothing new while it stays parked");
-	assert.deepEqual(arrivals(before, after).map((a) => a.wait?.id), ["W1"], "when auto mode ends it is an ordinary wait again");
+	assert.deepEqual(arrivals(before, after).map((a) => a.wait?.id), ["W1"], "a wait the panel never listed is an ordinary wait again");
+	const listed = alertsOf(towerNet([w("W1", { listed: true }), w("W2")]), Date.now());
+	assert.deepEqual([...listed.values()].filter((a) => a.wait).map((a) => a.wait!.id), ["W2"], "boss decision 11-10: a wait the return panel lists notifies no more when auto mode ends (no notification, sound, dock, or count); it stays on its card");
+	assert.equal(arrivals(before, alertsOf(towerNet([w("W1", { listed: true })]), Date.now())).length, 0, "parked to listed: nothing arrives");
 });
 
 test("a parked card says it is parked, in both languages; its row line says it too", () => {
@@ -318,11 +321,69 @@ test("the head's parked card is found in the head's memory and pressed at the he
 	sent.length = 0;
 	const netNow: Net = { bases: [], head: { key: "sb-head", name: "head", mark: "idle", state: "running", asks: [], service: { state: "running", memory: memoryOf([w("W5", { card: cardOf("action") })]) } } } as never;
 	const { host, back } = panelWith(netNow);
-	await back.open({ ...REPORT, parked: [ROW("W5", { workspace: "ws-of-the-head", tower: "head" })] });
+	await back.open({ ...REPORT, parked: [ROW("W5", { workspace: "ws-of-the-head", tower: "head", head: true })] });
 	assert.equal(host.querySelectorAll(".auto-back-card").length, 1);
 	(host.querySelector(".auto-back-card .wc-btn") as El).click();
 	await until(() => sent.length === 1, "the press");
 	assert.equal(sent[0]!.path, "api/head/memory");
+});
+
+test("a head row never finds a tower's wait and a tower row never finds the head's, whatever their ids (AG-F001)", async () => {
+	const head = { key: "sb-head", name: "head", mark: "idle", state: "running", asks: [], service: { state: "running", memory: memoryOf([w("W1", { card: cardOf("action") })]) } };
+	const gone = { bases: [{ id: "wA", label: "Alpha", mark: "idle", tower: null, tabs: [], outposts: [], outside: [] }], head } as never as Net;
+	assert.equal(openWait(gone, ROW("W1", { workspace: "wA", tower: "Alpha" }) as never), undefined, "the tower is gone: its W1 is settled, not the head's");
+	assert.equal(openWait({ bases: [], head } as never as Net, ROW("W1", { workspace: "wA" }) as never), undefined, "no such base at all");
+	assert.equal(openWait(gone, ROW("W1", { workspace: "ws-head", tower: "head", head: true }) as never)?.key, "sb-head");
+	const both = towerNet([w("W1", { card: cardOf("action") })]);
+	assert.equal(openWait({ ...both, head } as never, ROW("W1", { head: true }) as never)?.ws, "@head", "a head row looks only in the head, though a tower holds a W1 too");
+});
+
+test("Esc closes the panel: the dialog's own close records the list as seen, and the panel holds the keyboard while open (AG-F002)", async () => {
+	const { host, back, store } = panelWith(towerNet([w("W1", { card: cardOf("action") })]));
+	await back.open({ ...REPORT, parked: [ROW("W1")] });
+	assert.equal(store.get(), null);
+	host.dispatchEvent({ type: "close" });
+	assert.equal(store.get(), REPORT.until, "closed by Esc: seen on this device, so it does not open again on the next load");
+	assert.match(readFileSync(new URL("../gui/hotkeys.ts", import.meta.url), "utf8"), /export const MODAL = "[^"]*dialog\.auto-back\[open\]/);
+});
+
+test("check(true) opens the report while the snapshot still says on (this page just ended it); check() does not", async () => {
+	const post = async () => ({ ok: true, status: 200, body: { report: REPORT } });
+	const live = panelWith(towerNet([], { on: true, since: SINCE }), { post: post as never });
+	await live.back.check();
+	assert.equal(live.host.hidden, true);
+	await live.back.check(true);
+	assert.equal(live.host.hidden, false, "forced: the snapshot has not caught up");
+});
+
+test("the chip's box shows only where this server can switch auto mode, and follows each snapshot; the page feeds it every snapshot (AG-F006, AG-F005)", () => {
+	const { box, sw } = switchWith([]);
+	assert.equal(box.hidden, true, "before the first snapshot");
+	sw.net(net());
+	assert.equal(box.hidden, true, "a secondary slot's server or an unattended device: no chip");
+	sw.net({ bases: [], autoable: true });
+	assert.equal(box.hidden, false);
+	sw.net({ bases: [], autoable: true, auto: { on: true, since: SINCE } });
+	assert.equal(box.hidden, false);
+	sw.net({ bases: [], auto: { on: true, since: SINCE } });
+	assert.equal(box.hidden, false, "on stays reachable so it can be ended");
+	sw.net(net());
+	assert.equal(box.hidden, true);
+	assert.match(readFileSync(new URL("../gui/main.ts", import.meta.url), "utf8"), /function draw\(net: Net[^)]*\) \{[\s\S]*?autoSw\.net\(net\);[\s\S]*?moreActs\(\)/, "draw feeds the chip before the ⋯ reads it");
+});
+
+test("the server says whether it can switch: the primary's attended panel does, an unattended device does not; the snapshot carries `autoable` for it", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "psb-autogui-"));
+	const auto = createAutoMode({ dir, now: () => 1_800_000_000_000, log: () => {}, id: () => "id1" });
+	auto.start();
+	let unattended = false;
+	const panel = autoPanel(auto, () => unattended);
+	const herdr = async (args: string[]) => JSON.stringify({ result: args[0] === "pane" ? { panes: [] } : { workspaces: [] } });
+	const read = () => netSource({ run: herdr, sessions: async () => [], sessionDir: "/s", auto: () => panel.snap(), autoable: () => panel.available() }).read();
+	assert.equal((await read()).autoable, true);
+	unattended = true;
+	assert.ok(!("autoable" in (await read())));
+	assert.ok(!("autoable" in (await netSource({ run: herdr, sessions: async () => [], sessionDir: "/s" }).read())), "no panel (a secondary slot): none");
 });
 
 test("nothing parked says so; check() reads the report once, opens it when this device has not seen it, and not again after it was closed or while auto mode is on", async () => {

@@ -89,6 +89,7 @@ export function mountAutoSwitch(box: HTMLElement, o: SwitchOpts = {}): { net(net
 	};
 	chip.addEventListener("keydown", (e: KeyboardEvent) => e.key === "Escape" && arming !== undefined && (disarm(), draw()));
 	box.replaceChildren(chip, note);
+	box.hidden = true; // until a snapshot says this server can switch auto mode (a secondary slot's or an unattended device's cannot)
 	draw();
-	return { net(net) { on = net?.auto?.on ? { ...(net.auto.since ? { since: net.auto.since } : {}) } : undefined; if (on) disarm(); draw(); } };
+	return { net(net) { box.hidden = !net?.auto && !net?.autoable; on = net?.auto?.on ? { ...(net.auto.since ? { since: net.auto.since } : {}) } : undefined; if (on) disarm(); draw(); } };
 }

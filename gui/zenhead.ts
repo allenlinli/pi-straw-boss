@@ -116,7 +116,7 @@ export function mountHead(io: HeadIo) {
 	let unit: HeadUnit | undefined, restOn: boolean | undefined, rested = false, kept = 0, stopTimer = () => {}, hover = false, focus = false, touching = false, stopHover = () => {}, stopTouch = () => {}, local = 0;
 	const known = new Set<string>(), shown = new Map<string, HTMLElement>(), pending: { id: string; text: string; seen: number }[] = [];
 	const one = (text: string) => text.replace(/\s+/g, " ").trim();
-	const openWaits = () => new Set(unit?.service?.memory?.bossWaits.filter((w) => !w.answered && !w.state && !w.parked).map((w) => w.id)); // a parked wait (auto mode is on) is no cue: it raises nothing here either
+	const openWaits = () => new Set(unit?.service?.memory?.bossWaits.filter((w) => !w.answered && !w.state && !w.parked && !w.listed).map((w) => w.id)); // a parked wait (auto mode is on) is no cue: it raises nothing here either
 	const bosses = (text: string) => headLines(items).filter((l) => l.who === "boss" && l.text === text).length;
 
 	/** All the lines: the history's, then what the boss just sent that the stream has not brought back yet. */
@@ -139,7 +139,7 @@ export function mountHead(io: HeadIo) {
 
 	function draw() {
 		const keep = lines().slice(-FILL); // how many show is the page's: three (two on a phone) while quiet, the whole height the circle leaves while awake (zen.css)
-		const waits = Boolean(unit?.service?.memory?.bossWaits.some((w) => !w.answered && !w.state && !w.parked)), held = waits && keep.at(-1)?.who !== "boss";
+		const waits = Boolean(unit?.service?.memory?.bossWaits.some((w) => !w.answered && !w.state && !w.parked && !w.listed)), held = waits && keep.at(-1)?.who !== "boss";
 		fade.see(keep.map((l) => l.id));
 		for (const [id, li] of shown) if (!keep.some((l) => l.id === id)) (li.remove(), shown.delete(id));
 		keep.forEach((l, i) => {

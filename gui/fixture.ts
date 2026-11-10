@@ -121,7 +121,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	const zen = new URLSearchParams(location.search).get("zen"), cardParam = new URLSearchParams(location.search).get("card");
 	/** The terminal card's script (democard.ts): `?card=<state>` starts one; an answer that leaves a terminal step starts the default one (a pane types its command, "Run it" runs it). */
 	let card = isCard(cardParam) ? demoCard(cardParam, (type, payload) => current?.send(type, payload)) : undefined;
-	let net = demo(), step = 0, waits = 0, dropped = false, silent = false, current: FixtureSource | undefined, live = 0, notes = 0;
+	let net: Net = { ...demo(), autoable: true }, step = 0, waits = 0, dropped = false, silent = false, current: FixtureSource | undefined, live = 0, notes = 0;
 	const boxes = boxDemo(net, new URLSearchParams(location.search).get("operate")); // `?operate=live,unreachable,revoked,refused|more|all`: remote bases of an unattended box (demo-box.ts)
 	// `?waits=cards` (demo-waits.ts: the fonstar case, then one card of each kind and state; its presses are answered there). `?wait=fresh|stale|both`: the tower records a wait on the boss (20 minutes old: an alert; three days old: only the card's line, marked as out of date); the memory route's drop is this stand-in's.
 	const waitDemo = new URLSearchParams(location.search).get("wait") ?? (new URLSearchParams(location.search).get("waits") === "cards" || new URLSearchParams(location.search).has("auto") ? "cards" : zen === "blocking" ? "fresh" : null);

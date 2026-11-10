@@ -936,7 +936,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Sound split (todo #139; measured) 8651 to 8690 (+39): audio.ts keeps a gain for each class (+4), prefs.ts the four keys and the legacy fallback (+4), notify.ts one strip for each class (+7), zenmenu.ts and paletteentries.ts a row group for each class (+6, +5), zenmusicbar.ts the Background gate (+12), zenpage.ts one line (the weather's one-line change cancels in the page's count). Cap = measured; zenmusicbar.ts 178 to 190, prefs.ts 41 to 45.
 	// Auto mode phase 1 task 5a (todo #140; measured) 8690 to 8728 (+38): gui/auto.ts (new, 32: the head's confirm button), session.ts +3 and zen.ts +3 (where it is mounted).
 	// Auto mode phase 2 (todo #140 task 5b; measured) 8728 to 8996 (+268): gui/autoback.ts (new, 131: the return panel), gui/demo-auto.ts (new, 83: `?auto=on|back` and the stand-in of the routes), auto.ts +49 (the chip and its switch), waitcard.ts, waitcardmodel.ts, waits.ts and the two sentence modules' users (the parked mark, the hidden secret start, the row line), main.ts (the chip, the panel's load).
-	assert.ok(page <= 8996, `the page's TypeScript has ${page} lines`);
+	// Auto mode phase 2 review fixes (AG-F001 to F006; measured) 8996 to 9003 (+7): the head row mark and the close listener in autoback.ts, the chip box hidden by the snapshot in auto.ts, the listed flag in waits.ts and zenhead.ts, `autoable` in fixture.ts.
+	assert.ok(page <= 9003, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -1152,7 +1153,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// 0.69.0 merges (#137 agent kinds, #139 sound split, #142 pi-better-show 0.5.0; measured after a fresh `npm run gui:build`, node 24): 130,473 / 47,279 to 131,479 / 47,658 (+1,006 / +379). Cap = measured.
 	// 0.70.0 merge (todo #140 auto mode + #141 + /boss link on; measured after a fresh `npm run gui:build`, node 24): 131,479 / 47,658 to 131,479 / 47,659 (+0 / +1, gzip noise of the merged tree). Cap = measured.
 	// Auto mode phase 2 (todo #140 task 5b; measured after a fresh `npm run gui:build`, node 24): 131,479 / 47,659 to 135,890 / 49,103 (+4,411 / +1,444): the header chip and its switch (auto.ts `mountAutoSwitch`, in the page's first chunk), the parked mark and the hidden secret start of the wait card, the parked wait's line, and the 33 new messages. The return panel (autoback.ts) is a chunk of its own. Cap = measured.
-	assert.ok(eagerBytes <= 135_890 && eagerGz <= 49_103, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Auto mode phase 2 review fixes (measured after a fresh `npm run gui:build`, node 24): 135,890 / 49,103 to 135,969 / 49,139 (+79 / +36: the chip box follows the snapshot). Cap = measured.
+	assert.ok(eagerBytes <= 135_969 && eagerGz <= 49_139, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1374,7 +1376,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Raven motion fix (measured after a fresh `npm run gui:build`, node 24): the chat chunks' bytes are unchanged at 481,290 and gzip 179,989 to 179,990 (+1, gzip's noise: this work touches only raven.css). Cap = measured.
 	// Auto mode phase 1 (todo #140; measured after a fresh `npm run gui:build`, node 24): 481,290 / 179,990 to 482,966 / 180,604 (+1,676 / +614: gui/auto.ts, the head's confirm button, its messages in both languages and the Raven sentences). Cap = measured.
 	// Auto mode phase 2 (todo #140 task 5b; measured after a fresh `npm run gui:build`, node 24): 482,966 / 180,604 to 487,835 / 182,973 (+4,869 / +2,369: the return panel (autoback.ts, a chunk of its own with its messages in both languages), the parked mark of the wait card and the hidden secret start). Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 487_835 && total(chunks, gz) <= 182_973, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Auto mode phase 2 review fixes (measured after a fresh `npm run gui:build`, node 24): chat chunks 487,835 to 487,925 (+90 bytes; gzip 182,966, under its cap): the fold marker's and the head row's code in autoback.ts. Raven gzip 326,393 to 326,394 (noise). Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 487_925 && total(chunks, gz) <= 182_973, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1534,7 +1537,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Auto mode phase 1 (todo #140; measured after a fresh `npm run gui:build`, node 24): 136,915 / 28,131 to 137,259 / 28,196 (+344 / +65: the confirm box's rules in gui/style.css). Cap = measured.
 	// 0.70.0 merge (#140 confirm box + #141 tap slop together; measured after a fresh `npm run gui:build`, node 24): 137,457 / 28,233. Cap = measured.
 	// Auto mode phase 2 (todo #140 task 5b; measured after a fresh `npm run gui:build`, node 24): stylesheet 137,457 / 28,233 to 140,643 / 28,797 (+3,186 / +564: the chip and its states, the parked mark, the return panel and its phone sheet, the 44 px rules). Raw cap = measured; gzipped cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 140_643 && total(css, gz) <= 28_797, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Auto mode phase 2 review fixes (measured after a fresh `npm run gui:build`, node 24): 140,643 / 28,797 to 140,920 / 28,848 (+277 / +51: the return panel's fold marker). Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 140_920 && total(css, gz) <= 28_848, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen theme's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.
@@ -1587,7 +1591,8 @@ test("each theme's folder stays within its byte cap", () => {
 	// Auto mode phase 1 (todo #140; measured after a fresh `npm run gui:build`, node 24): zen 129,970 / 40,870 to 130,047 / 40,876 (+77 / +6: the head's confirm button mounted in zen.ts). Cap = measured.
 	// Auto mode phase 1 (todo #140; measured after a fresh `npm run gui:build`, node 24): raven 430,883 / 326,322 to 431,015 / 326,393 (+132 / +71: the Raven forms of the two auto sentences). Cap = measured.
 	// Auto mode phase 2 (todo #140 task 5b; measured after a fresh `npm run gui:build`, node 24): zen 130,047 / 40,876 to 130,076 / 40,896 (+29 / +20: the parked line of the wait card and its messages in the shared chunks, and zenhead.ts leaving a parked wait out of its cue). Geek and raven are as before. Cap = measured.
-	const caps: Record<string, [number, number]> = { geek: [7_587, 2_542], zen: [130_076, 40_896], raven: [431_015, 326_393] };
+	// Auto mode phase 2 review fixes (measured after a fresh `npm run gui:build`, node 24): zen 130,076 / 40,896 to 130,098 / 40,903 (+22 / +7: the listed flag in zenhead.ts). Cap = measured.
+	const caps: Record<string, [number, number]> = { geek: [7_587, 2_542], zen: [130_098, 40_903], raven: [431_015, 326_394] };
 	// Raven Keep review round 2 (measured, node 24): raven 227,821 / 152,777 to 236,417 / 155,182 (+8,596 / +2,405: the crest brand symbol in the sprite, the moon veil, the tome in the documents list). Cap = measured.
 	// Measured on node 24 after batch 1 (the mechanism, no new art): Geek is its stylesheet and an empty entry; Zen is its chunk, stylesheet, music player, and audio bus. Caps = measured; merge of #126 (zenhead.ts) +20 / +5; pi-better-show blocks (todo #129): geek 6,137 / 2,068, +49 / +14 for the 13 px rule of the elements; round 2: zen 38,954 to 38,955 gzipped with the same raw size (the content hashes of the shared chunks it imports changed, which moves the compressed bytes by one).
 	assert.deepEqual(readdirSync(dir).sort(), Object.keys(caps).sort(), "a folder per theme and no other");

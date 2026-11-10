@@ -32,7 +32,7 @@ export function autoDemo(net: Net, param: string | null, now: number): { report?
 	if (!isState(param)) return undefined;
 	const memory = tower(net);
 	if (memory) {
-		const picked = cardWaits(now).filter((w) => IDS.includes(w.id)).map((w, i) => ({ ...w, at: new Date(now - (6 + i) * HOUR).toISOString(), ...(param === "on" ? { parked: true as const } : {}) }));
+		const picked = cardWaits(now).filter((w) => IDS.includes(w.id)).map((w, i) => ({ ...w, at: new Date(now - (6 + i) * HOUR).toISOString(), ...(param === "on" ? { parked: true as const } : param === "back" ? { listed: true as const } : {}) }));
 		Object.assign(memory, { bossWaits: picked, waits: picked.length });
 	}
 	if (param === "on") {
@@ -52,7 +52,7 @@ export function autoSwitch(net: Net, on: boolean, now: number): { status: number
 		return { status: 200, body: { on: true, since: net.auto.since } };
 	}
 	const report = reportOf(net, now);
-	for (const w of waits) delete w.parked;
+	for (const w of waits) (delete w.parked, w.listed = true); // the list showed them: the panel is their notice
 	delete net.auto;
 	return { status: 200, body: { on: false }, report };
 }

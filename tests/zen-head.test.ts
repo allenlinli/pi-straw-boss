@@ -466,6 +466,17 @@ test("a wait the boss already answered holds nothing: the line fades as any othe
 	assert.equal(r.by("zen-hl")[0]!.getAttribute("data-held"), null, "an answered wait does not keep the newest line clear");
 });
 
+test("a parked or listed wait (auto mode, docs/specs/2026-11-09-auto-mode.md D8) is no cue and holds no line", async () => {
+	for (const flag of [{ parked: true as const }, { listed: true as const }]) {
+		const waits = service({ memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [{ id: "w1", text: "orchard?", at: at(5), ...flag }], proposals: [] } });
+		const r = rig({ head: head({ service: waits }), items: [headLine("a1", "Should I rerun the ETL tonight?", 5)] });
+		await r.start();
+		assert.equal(cueOf(r), "", `${Object.keys(flag)[0]}: no card waits for Enter`);
+		await r.advance(CLEAR_MS + FADE_MS + 60_000);
+		assert.equal(r.by("zen-hl")[0]!.getAttribute("data-held"), null, `${Object.keys(flag)[0]}: the newest line is not held`);
+	}
+});
+
 test("pointing at the strip or focusing it brightens the lines at once and lets them go 1.5 s after; a touch holds them for 10 s, and a touch elsewhere ends it", async () => {
 	const r = rig({ items: [headLine("a1", "fading", 1)] });
 	await r.start();

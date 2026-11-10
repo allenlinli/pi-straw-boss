@@ -10,7 +10,7 @@ import { m } from "./sentences.ts";
 // each device, on the next page load or when this page's own switch ends auto mode.
 
 /** One parked wait of the list, as the server wrote it (src/server/autotower.ts `ParkedRow`). */
-export interface BackRow { workspace: string; tower: string; id: string; text: string; type: string; from?: string; at: string }
+export interface BackRow { workspace: string; head?: true; tower: string; id: string; text: string; type: string; from?: string; at: string }
 export interface BackLine { session: string; tool: string; kind: string; count: number; first: string; gist: string }
 /** The last period's return list, the fields the panel reads (src/server/autotower.ts `Report`). */
 export interface BackReport {
@@ -37,10 +37,13 @@ const load = () => (loading ??= Promise.all([import("./waitcard.ts"), import("./
 /** The wait a parked row is about, still open in the snapshot, with where its presses go: a tower's base by its workspace, else the head's own memory. */
 export function openWait(net: Net | undefined, row: BackRow): { ws: string; key: string; wait: BossWait } | undefined {
 	const open = (w: BossWait) => !w.state && !w.answered;
-	for (const b of net?.bases ?? []) {
-		if (b.id !== row.workspace || !b.tower) continue;
-		const w = b.tower.service?.memory?.bossWaits.find((x) => x.id === row.id);
-		return w && open(w) ? { ws: b.id, key: b.tower.key, wait: w } : undefined;
+	if (!row.head) {
+		for (const b of net?.bases ?? []) {
+			if (b.id !== row.workspace || !b.tower) continue;
+			const w = b.tower.service?.memory?.bossWaits.find((x) => x.id === row.id);
+			return w && open(w) ? { ws: b.id, key: b.tower.key, wait: w } : undefined;
+		}
+		return undefined;
 	}
 	const head = net?.head, w = head?.service?.memory?.bossWaits.find((x) => x.id === row.id);
 	return head && w && open(w) ? { ws: HEAD_KEY, key: head.key, wait: w } : undefined;
@@ -93,10 +96,13 @@ export function mountBack(host: HTMLElement, d: BackDeps) {
 		host.focus(); // the panel itself takes the focus when it opens, not its first card
 	}
 	function closePanel() {
-		if (shown) d.store.set(shown.until);
+		seen();
 		host.hidden = true;
 		(host as HTMLDialogElement).close?.();
 	}
+	/** This device has been shown the list: the close button, and Esc (the dialog's own `close`), both record it. */
+	function seen() { if (shown) d.store.set(shown.until); }
+	host.addEventListener("close", seen);
 	/** Reads the last list and opens it when this device has not been shown it, it is recent, and auto mode is not on again (`force`: this page just ended it, and its snapshot has not said so yet). */
 	async function check(force = false): Promise<void> {
 		if (!force && d.net()?.auto?.on) return;

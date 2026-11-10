@@ -240,7 +240,7 @@ export function createGuiHost(o: GuiHostOptions) {
 	const begin = async (prefer: ReturnType<typeof recorded>, wait: number): Promise<Gui> => {
 		theHub();
 		const boardDir = join(slot.stateDir, "board");
-		const net = (current = netSource({ ...(o.auto ? { auto: () => o.auto!.snap() } : {}), ...(o.tower ? { services: (workspace: string) => o.tower!.view(workspace) } : {}), ...(o.head ? { head: o.head } : {}), run: cfg.run, world: cfg.world, sessions, stashed: () => stashedList(slot.stateDir), trust, hub, board: boardSeam({ dir: boardDir, now: () => cfg.now() }), trainyard: trainyardSeam({ env: cfg.env, stateDir: slot.stateDir, ...(o.trainCars ? { book: o.trainCars } : {}), ...o.trainyard }) }));
+		const net = (current = netSource({ ...(o.auto ? { auto: () => o.auto!.snap(), autoable: () => o.auto!.available() } : {}), ...(o.tower ? { services: (workspace: string) => o.tower!.view(workspace) } : {}), ...(o.head ? { head: o.head } : {}), run: cfg.run, world: cfg.world, sessions, stashed: () => stashedList(slot.stateDir), trust, hub, board: boardSeam({ dir: boardDir, now: () => cfg.now() }), trainyard: trainyardSeam({ env: cfg.env, stateDir: slot.stateDir, ...(o.trainCars ? { book: o.trainCars } : {}), ...o.trainyard }) }));
 		// `running` is read by the page's remote buttons, which only come once the server is up.
 		let running!: Gui;
 		// Wi-Fi access belongs to the primary slot (one port, one CA, one name per computer): a secondary server builds the host too, to refuse its requests in words, and never writes lan.json.
